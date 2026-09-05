@@ -1,19 +1,43 @@
 <!DOCTYPE html>
 <html lang="en">
 <head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Shane Battles</title>
     <link rel="stylesheet" href="{{ url_for('static', filename='css/home.css') }}">
 </head>
+
 <body>
-    <h1>Homepage of Shane Battles</h1>
-    <h2>JHU Course 605.256</h2>
-    <strong><nav>
-        <ul class="menu">
-            <li><a href="{{ url_for('contact') }}">Contact</a></li>
-            <li><a href="{{ url_for('projects') }}">Projects</a></li>
-        </ul>
-    </nav></strong>
-    <p> This is all the information for the homepage
-    </p>
+
+    {% include 'navigation.html' %}
+
+    <main class="container home-content">
+        <div class="profile">
+            <!-- All text information is grouped together on the left -->
+            <div class="profile-info">
+                <h1>Homepage of Shane Battles</h1>
+
+                <h2>Position</h2>
+                <p>Student, Online Data Science Master's Program</p>
+
+                <h2>Bio</h2>
+                <p>
+                    I am a student in Johns Hopkins University's online Masters in
+                    Data Science program. Currently I am enrolled in EN 605.256,
+                    Modern Software Concepts in Python. In my free time I like to
+                    travel with my partner and two dogs, and try new foods. I am an
+                    avid reader, willing to read just about anything, and in my very
+                    limited spare time I like to play video games.
+                </p>
+            </div>
+
+            <!-- The photo stands on its own on the right -->
+            <div class="profile-photo">
+                <img src="{{ url_for('static', filename='images/Website_Bio_Photo.jpeg') }}"
+                     alt="Photo of Shane Battles">
+            </div>
+        </div>
+    </main>
+
 </body>
 </html>

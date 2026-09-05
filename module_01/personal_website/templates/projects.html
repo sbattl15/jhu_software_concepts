@@ -1,12 +1,44 @@
 <!DOCTYPE html>
 <html lang="en">
 <head>
-    <title>Shane Battles</title>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Projects - Shane Battles</title>
+    <link rel="stylesheet" href="{{ url_for('static', filename='css/home.css') }}">
 </head>
+
 <body>
-    <h1>Projects of Shane Battles</h1>
-    <h2>JHU Course 605.256</h2>
-    <p> Projects that Shane has completed or is working on
-    </p>
+
+    {% include 'navigation.html' %}
+
+    <main class="container">
+        <h1>Projects of Shane Battles</h1>
+
+        <h2>JHU Course 605.256</h2>
+
+        <p>
+            Projects that Shane has completed or is working on.
+        </p>
+
+        <h3>Module 1 Assignment: Personal Website</h3>
+
+        <p>
+            This website was created for the first assignment in EN 605.256. It is
+            a personal website created using Flask that includes a homepage, a
+            contact info page, and a list of projects and publications. It will
+            be an evolving website, growing as the semester continues.
+        </p>
+
+        <h4>GitHub Repository</h4>
+
+        <p>
+            <a href="https://github.com/sbattl15/jhu_software_concepts/tree/86f83f0a1528227e665dcc8ff17a191397d358ca/module_01/"
+               target="_blank"
+               rel="noopener noreferrer">
+                View Module 1 Project on GitHub
+            </a>
+        </p>
+    </main>
+
 </body>
 </html>

@@ -1,7 +1,3 @@
-/* created using the following ChatGPT prompt:
-write a generic .css template for a webpage in flask
- */
-
 /* =========================
    Global Styles
    ========================= */
@@ -32,68 +28,103 @@ body {
     width: 90%;
     max-width: 1200px;
     margin: 0 auto;
-    padding: 20px;
+    padding: 5px;
 }
 
 
 /* =========================
-   Navigation
+   Navigation Bar
    ========================= */
 
 nav {
-    background-color: #222;
-    padding: 15px 0;
+    background-color: #007bff; /* Changed to blue */
+    padding: 5px 0;
+    width: 100%;
 }
 
 nav .container {
     display: flex;
     align-items: center;
-    justify-content: space-between;
+    justify-content: flex-end; /* Pushes the menu to the top right corner */
 }
 
-nav a {
+
+/* Navigation menu */
+
+.menu {
+    display: flex;
+    justify-content: center;
+    align-items: center;
+    list-style: none;
+    margin: 0;
+    padding: 0;
+}
+
+.menu li {
+    margin: 0 10px;
+}
+
+.menu a {
+    display: block;
     color: white;
     text-decoration: none;
-    margin-left: 20px;
-    transition: color 0.2s ease;
+    padding: 10px 15px;
+    border-radius: 5px;
+    transition: background-color 0.2s ease, color 0.2s ease;
 }
 
-nav a:hover {
-    color: #4da6ff;
+/* Current / Highlighted Tab */
+.menu a.active {
+    background-color: white;
+    color: #007bff;
+    font-weight: bold;
 }
 
-
-/* =========================
-   Header / Hero
-   ========================= */
-
-header {
-    background: #333;
+.menu a:hover {
+    background-color: #0056b3; /* Darker blue hover effect */
     color: white;
-    text-align: center;
-    padding: 80px 20px;
-}
-
-header h1 {
-    font-size: 2.5rem;
-    margin-bottom: 10px;
-}
-
-header p {
-    font-size: 1.1rem;
-    color: #ddd;
 }
 
 
 /* =========================
-   Main Content
+   Main Content & Profile Layout
    ========================= */
 
 main {
-    min-height: 60vh;
-    padding: 40px 0;
+    min-height: 10vh;
+    padding: 0;
 }
 
+.home-content {
+    margin-top: 20px;
+    padding-top: 0;
+}
+
+/* Turns the profile wrapper into a side-by-side layout */
+.profile {
+    display: flex;
+    align-items: flex-start;        /* Aligns text and image top edge */
+    justify-content: space-between; /* Spaced out text (left) and photo (right) */
+    gap: 40px;                      /* Clear separation space */
+}
+
+.profile-info {
+    flex: 1;                        /* Forces text area to occupy all available left space */
+}
+
+.profile-photo {
+    flex-shrink: 0;                 /* Prevents the image container from being squished */
+}
+
+.profile-photo img {
+    max-width: 350px;  /* Clean size boundary for the desktop image */
+    width: 100%;
+    height: auto;
+    display: block;
+    border-radius: 8px; /* Optional: Softens photo edges */
+}
+
+/* Typography elements */
 h1,
 h2,
 h3 {
@@ -103,6 +134,27 @@ h3 {
 
 p {
     margin-bottom: 15px;
+}
+
+
+/* =========================
+   Responsive Media Queries
+   ========================= */
+
+/* Elegant fallback for mobile devices so text isn't cramped */
+@media (max-width: 768px) {
+    .profile {
+        flex-direction: column;     /* Stacks photo below text on mobile screens */
+    }
+
+    .profile-photo {
+        width: 100%;
+    }
+
+    .profile-photo img {
+        margin: 0 auto;             /* Centers the image nicely when stacked */
+        max-width: 280px;           /* Slightly smaller profile picture size for phones */
+    }
 }
 
 
@@ -120,111 +172,4 @@ p {
     border-radius: 5px;
     cursor: pointer;
     transition: background-color 0.2s ease;
-}
-
-.btn:hover {
-    background-color: #0056b3;
-}
-
-
-/* =========================
-   Cards
-   ========================= */
-
-.card-container {
-    display: grid;
-    grid-template-columns: repeat(auto-fit, minmax(250px, 1fr));
-    gap: 20px;
-}
-
-.card {
-    background-color: white;
-    padding: 25px;
-    border-radius: 8px;
-    box-shadow: 0 2px 8px rgba(0, 0, 0, 0.08);
-}
-
-.card h3 {
-    margin-bottom: 10px;
-}
-
-
-/* =========================
-   Forms
-   ========================= */
-
-form {
-    max-width: 600px;
-    margin: 0 auto;
-}
-
-label {
-    display: block;
-    margin-bottom: 5px;
-    font-weight: bold;
-}
-
-input,
-textarea,
-select {
-    width: 100%;
-    padding: 10px;
-    margin-bottom: 15px;
-    border: 1px solid #ccc;
-    border-radius: 5px;
-    font-family: inherit;
-}
-
-textarea {
-    min-height: 150px;
-    resize: vertical;
-}
-
-input:focus,
-textarea:focus,
-select:focus {
-    outline: none;
-    border-color: #007bff;
-}
-
-
-/* =========================
-   Footer
-   ========================= */
-
-footer {
-    background-color: #222;
-    color: white;
-    text-align: center;
-    padding: 25px 20px;
-}
-
-footer p {
-    margin: 0;
-    color: #ccc;
-}
-
-
-/* =========================
-   Responsive Design
-   ========================= */
-
-@media (max-width: 768px) {
-    nav .container {
-        flex-direction: column;
-        gap: 10px;
-    }
-
-    nav a {
-        margin: 0 8px;
-    }
-
-    header h1 {
-        font-size: 2rem;
-    }
-
-    .container {
-        width: 95%;
-        padding: 15px;
-    }
 }

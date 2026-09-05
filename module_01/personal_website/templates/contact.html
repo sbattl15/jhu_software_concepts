@@ -1,12 +1,39 @@
 <!DOCTYPE html>
 <html lang="en">
 <head>
-    <title>Shane Battles</title>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Contact - Shane Battles</title>
+    <link rel="stylesheet" href="{{ url_for('static', filename='css/home.css') }}">
 </head>
+
 <body>
-    <h1>Contact Information for Shane Battles</h1>
-    <h2>JHU Course 605.256</h2>
-    <p> This is how you reach Shane
-    </p>
+
+    {% include 'navigation.html' %}
+
+    <main class="container">
+        <h1>Contact Information for Shane Battles</h1>
+
+        <h2>JHU Course 605.256</h2>
+
+        <p>This is how you reach Shane.</p>
+
+        <h3>Email Address</h3>
+        <p>
+            <a href="mailto:sbattl15@jh.edu">
+                sbattl15@jh.edu
+            </a>
+        </p>
+
+        <h3>LinkedIn</h3>
+        <p>
+            <a href="https://www.linkedin.com/in/shane-battles-8a394920a"
+               target="_blank"
+               rel="noopener noreferrer">
+                LinkedIn Profile
+            </a>
+        </p>
+    </main>
+
 </body>
 </html>
