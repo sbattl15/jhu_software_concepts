@@ -9,7 +9,6 @@ import urllib.error
 import urllib.parse
 import urllib.request
 import urllib.robotparser
-from concurrent.futures import ThreadPoolExecutor, as_completed
 from typing import Optional
 
 from bs4 import BeautifulSoup
@@ -27,12 +26,11 @@ USER_AGENT = (
     "(+mailto:sbattl15@jh.edu; educational coursework)"
 )
 
-# Exactly 8 pages at a time by default with multithreading
-DEFAULT_WORKERS = 8
-
-# Maximum pages to fetch from the website
-desired_entries = 40000
-MAX_PAGES = desired_entries/20
+# Roughly how many entries GradCafe shows per page -- used only to translate
+# a desired entry count into a page count; actual entries returned depends
+# on how the site formats it.
+desired_entries = 400
+MAX_PAGES = desired_entries // 20
 
 REQUEST_TIMEOUT_SECONDS = 15
 DEFAULT_DELAY_SECONDS = 3.0
@@ -42,6 +40,7 @@ MAX_SIBLING_ROW_HOPS = 3
 _STOP_STATUS_CODES = {403, 429, 503}
 
 _RESULT_ID_RE = re.compile(r"/result/(\d+)", re.IGNORECASE)
+_NEXT_LINK_RE = re.compile(r"^next$", re.IGNORECASE)
 
 
 class ScrapeStoppedError(RuntimeError):
@@ -221,57 +220,54 @@ def _parse_page(html: str) -> list[dict]:
     return entries
 
 
-# ============================================================================
-# Pagination
-# ============================================================================
-
-
-def _make_page_url(page_number: int) -> str:
+def _find_next_page_url(html: str, current_url: str) -> Optional[str]:
     """
-    Build a survey URL for a specific page.
+    Find the URL of the next page of results.
 
-    GradCafe's survey pagination uses the p parameter.
-    Page 1 remains /survey/.
+    GradCafe paginates with an opaque ?cursor=... token rather than a
+    plain page number -- the only way to know page N+1's URL is to read
+    it out of the "Next" link in page N's HTML. Returns None once there
+    is no "Next" link (i.e. this is the last page).
     """
-    if page_number <= 1:
-        return urllib.parse.urljoin(BASE_URL, SURVEY_PATH)
-    return urllib.parse.urljoin(BASE_URL, f"{SURVEY_PATH}?p={page_number}")
+    soup = BeautifulSoup(html, "html.parser")
+
+    for link in soup.find_all("a", href=True):
+        text = _clean_text(link.get_text(" ", strip=True))
+        if _NEXT_LINK_RE.fullmatch(text):
+            return urllib.parse.urljoin(current_url, link["href"])
+
+    return None
 
 
 # ============================================================================
-# Thread worker
+# Fetching a single page
 # ============================================================================
 
 
 def _fetch_and_parse_page(
-    page_number: int,
+    url: str,
     delay_seconds: float,
     robots_parser: urllib.robotparser.RobotFileParser,
-) -> tuple[int, str, list[dict]]:
-    url = _make_page_url(page_number)
-
+) -> tuple[list[dict], Optional[str]]:
     if not can_fetch(url, robots_parser, USER_AGENT):
         raise PermissionError(f"robots.txt disallows {url}")
 
-    print(f"[thread] page {page_number}: fetching {url}")
+    print(f"[fetch] fetching {url}")
 
     html = _fetch_html(url)
 
     if _looks_blocked(html):
-        raise ScrapeStoppedError(
-            f"Page {page_number} appears to be a CAPTCHA/block page."
-        )
+        raise ScrapeStoppedError(f"{url} appears to be a CAPTCHA/block page.")
 
     entries = _parse_page(html)
+    next_url = _find_next_page_url(html, url)
 
-    print(f"[thread] page {page_number}: {len(entries)} entries")
+    print(f"[fetch] {url}: {len(entries)} entries")
 
-    # The delay belongs to each worker, so `workers` of them can run
-    # concurrently rather than making the entire batch wait workers * delay.
     if delay_seconds > 0:
         time.sleep(delay_seconds)
 
-    return page_number, url, entries
+    return entries, next_url
 
 
 # ============================================================================
@@ -282,21 +278,20 @@ def _fetch_and_parse_page(
 def scrape_data(
     max_pages: Optional[int] = None,
     delay_seconds: float = DEFAULT_DELAY_SECONDS,
-    workers: int = DEFAULT_WORKERS,
 ) -> list[dict]:
     """
-    Scrape survey pages concurrently.
+    Scrape survey pages, following GradCafe's "Next" link from one page
+    to the next.
 
-    Stops once `max_pages` pages have been fetched.
+    GradCafe paginates with an opaque cursor token, not a page number --
+    page N+1's URL is only known after page N has been fetched and
+    parsed, so pages are fetched strictly one at a time, in order (they
+    cannot be fetched concurrently or out of sequence).
 
-    Up to `workers` requests may already be running when the page limit
-    is reached. Those requests cannot always be cancelled because Python
-    cannot safely terminate a running thread, but once the limit is hit:
-        - no new pages are submitted
-        - pending (not yet started) futures are cancelled where possible
+    Stops once `max_pages` pages have been fetched, or once a page has
+    no "Next" link (there are no more results). MAX_PAGES is a hard
+    limit: no more than MAX_PAGES pages are ever requested.
     """
-    if workers < 1:
-        raise ValueError("workers must be at least 1")
     if max_pages is not None and max_pages < 1:
         raise ValueError("max_pages must be at least 1")
     if delay_seconds < 0:
@@ -321,128 +316,56 @@ def scrape_data(
     seen_entry_ids: set[str] = set()
 
     pages_fetched = 0
-    next_page_number = 1
+    current_url: Optional[str] = urllib.parse.urljoin(BASE_URL, SURVEY_PATH)
 
-    executor = ThreadPoolExecutor(max_workers=workers, thread_name_prefix="gradcafe")
-    active_futures = {}
+    # ========================================================================
+    # MAIN SCRAPING LOOP -- strictly sequential; see the docstring above.
+    # ========================================================================
+    while pages_fetched < max_pages and current_url is not None:
+        try:
+            page_entries, next_url = _fetch_and_parse_page(
+                current_url, delay_seconds, robots_parser
+            )
+            pages_fetched += 1
+        except ScrapeStoppedError as exc:
+            print(f"[scrape] STOP: {exc}")
+            break
+        except PermissionError as exc:
+            print(f"[robots.txt] {exc}")
+            break
+        except urllib.error.URLError as exc:
+            print(f"[scrape] network error fetching {current_url}: {exc}")
+            break
+        except Exception as exc:
+            print(f"[scrape] fetching {current_url} failed: {exc}")
+            break
 
-    try:
         # ====================================================================
-        # MAIN SCRAPING LOOP
+        # ADD ENTRIES
         # ====================================================================
-        while pages_fetched < max_pages:
-            # ----------------------------------------------------------------
-            # Submit pages until all workers are busy or every page number
-            # up to max_pages has already been submitted.
-            # ----------------------------------------------------------------
-            while len(active_futures) < workers and next_page_number <= max_pages:
-                page_number = next_page_number
-                next_page_number += 1
+        for entry in page_entries:
+            entry_id = _clean_text(entry.get("entry_id"))
 
-                try:
-                    future = executor.submit(
-                        _fetch_and_parse_page,
-                        page_number,
-                        delay_seconds,
-                        robots_parser,
-                    )
-                except RuntimeError as exc:
-                    # Should not normally happen; the executor is only
-                    # shut down in the finally block.
-                    print(f"[scrape] Could not submit page {page_number}: {exc}")
-                    break
+            # Deduplicate by GradCafe result ID.
+            if entry_id:
+                if entry_id in seen_entry_ids:
+                    continue
+                seen_entry_ids.add(entry_id)
 
-                active_futures[future] = page_number
-                print(
-                    f"[threads] submitted page {page_number} "
-                    f"(active={len(active_futures)})"
-                )
+            all_entries.append(entry)
 
-            # ----------------------------------------------------------------
-            # No requests are running.
-            # ----------------------------------------------------------------
-            if not active_futures:
-                print("[scrape] no active pages remaining; stopping.")
-                break
+        current_url = next_url
 
-            # ----------------------------------------------------------------
-            # Wait for one request to finish.
-            # ----------------------------------------------------------------
-            completed_future = next(as_completed(active_futures))
-            page_number = active_futures.pop(completed_future)
-
-            try:
-                _, _, page_entries = completed_future.result()
-                pages_fetched += 1
-            except ScrapeStoppedError as exc:
-                print(f"[scrape] STOP: {exc}")
-                for future in active_futures:
-                    future.cancel()
-                break
-            except PermissionError as exc:
-                print(f"[robots.txt] {exc}")
-                for future in active_futures:
-                    future.cancel()
-                break
-            except urllib.error.URLError as exc:
-                pages_fetched += 1
-                print(f"[scrape] network error on page {page_number}: {exc}")
-                continue
-            except Exception as exc:
-                pages_fetched += 1
-                print(f"[scrape] page {page_number} failed: {exc}")
-                continue
-
-            # ================================================================
-            # ADD ENTRIES
-            # ================================================================
-            for entry in page_entries:
-                entry_id = _clean_text(entry.get("entry_id"))
-
-                # Deduplicate by GradCafe result ID.
-                if entry_id:
-                    if entry_id in seen_entry_ids:
-                        continue
-                    seen_entry_ids.add(entry_id)
-
-                all_entries.append(entry)
-
-            # ================================================================
-            # PAGE LIMIT REACHED
-            # ================================================================
-            if pages_fetched >= max_pages:
-                print()
-                print("=" * 70)
-                if max_pages >= MAX_PAGES:
-                    print(
-                        f"[scrape] MAX_PAGES HARD CAP REACHED: {pages_fetched:,} pages"
-                    )
-                else:
-                    print(f"[scrape] PAGE LIMIT REACHED: {pages_fetched:,} pages")
-                print("[scrape] No additional pages will be submitted.")
-                print("=" * 70)
-
-                # Cancel futures that haven't started. Running HTTP requests
-                # cannot reliably be cancelled, but no new ones are submitted.
-                cancelled = sum(1 for future in active_futures if future.cancel())
-                still_running = len(active_futures) - cancelled
-
-                print(f"[scrape] Cancelled {cancelled} pending request(s).")
-                if still_running:
-                    print(f"[scrape] {still_running} request(s) were already running.")
-
-                break
-
-    finally:
-        # ====================================================================
-        # SHUTDOWN
-        #
-        # IMPORTANT: this happens ONLY after the scraping loop has stopped.
-        # Do not call executor.shutdown() before executor.submit().
-        # ====================================================================
-        for future in active_futures:
-            future.cancel()
-        executor.shutdown(wait=True, cancel_futures=True)
+    print()
+    print("=" * 70)
+    if pages_fetched >= max_pages:
+        if max_pages >= MAX_PAGES:
+            print(f"[scrape] MAX_PAGES HARD CAP REACHED: {pages_fetched:,} pages")
+        else:
+            print(f"[scrape] PAGE LIMIT REACHED: {pages_fetched:,} pages")
+    elif current_url is None:
+        print(f"[scrape] No further pages after {pages_fetched:,} page(s).")
+    print("=" * 70)
 
     print(
         f"[scrape] Finished after fetching {pages_fetched:,} page(s); "
@@ -470,13 +393,11 @@ def _save_json(entries: list[dict], out_path: str) -> None:
 def run(
     max_pages: Optional[int] = None,
     delay_seconds: float = DEFAULT_DELAY_SECONDS,
-    workers: int = DEFAULT_WORKERS,
     out_path: str = "applicant_data.json",
 ) -> list[dict]:
     raw_entries = scrape_data(
         max_pages=max_pages,
         delay_seconds=delay_seconds,
-        workers=workers,
     )
 
     if not raw_entries:
@@ -498,15 +419,9 @@ def run(
 
 def main() -> int:
     parser = argparse.ArgumentParser(
-        description="Scrape GradCafe survey data using concurrent page workers."
+        description="Scrape GradCafe survey data, following its Next-page links."
     )
 
-    parser.add_argument(
-        "--workers",
-        type=int,
-        default=DEFAULT_WORKERS,
-        help=f"Number of pages fetched concurrently (default: {DEFAULT_WORKERS}).",
-    )
     parser.add_argument(
         "--max-pages",
         type=int,
@@ -517,10 +432,7 @@ def main() -> int:
         "--delay",
         type=float,
         default=DEFAULT_DELAY_SECONDS,
-        help=(
-            "Delay inside each worker after a request "
-            f"(default: {DEFAULT_DELAY_SECONDS})."
-        ),
+        help=("Delay after each request " f"(default: {DEFAULT_DELAY_SECONDS})."),
     )
     parser.add_argument(
         "--output",
@@ -534,7 +446,6 @@ def main() -> int:
         run(
             max_pages=args.max_pages,
             delay_seconds=args.delay,
-            workers=args.workers,
             out_path=args.output,
         )
     except (PermissionError, RuntimeError) as exc:
