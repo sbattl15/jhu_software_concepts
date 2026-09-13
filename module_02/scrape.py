@@ -35,7 +35,7 @@ USER_AGENT = (
 DEFAULT_WORKERS = 8
 
 # Maximum entries to pull from website
-MAX_ENTRIES = 200
+MAX_ENTRIES = 40000
 
 REQUEST_TIMEOUT_SECONDS = 15
 DEFAULT_DELAY_SECONDS = 3.0
@@ -576,14 +576,14 @@ def _parse_page(
 
         entries.append(
             {
-                "raw_school_text": school_text,
-                "raw_program_text": program_text,
-                "raw_added_on_text": added_on_text,
-                "raw_decision_text": decision_text,
-                "raw_meta_text": combined_meta,
-                "raw_comment_text": combined_meta,
-                "entry_id": result_id,
+                "program": program_text + ', ' + school_text,
+                "comments": combined_meta,
+                "date_added": added_on_text,
                 "url": result_url,
+                "status": decision_text,
+                "term": decision_text,
+                "US/International": student_type,
+                "Degree": degree_text,
             }
         )
 
@@ -946,7 +946,7 @@ def scrape_data(
 
     Stops collecting once target_count entries are reached.
 
-    MAX_ENTRIES is an absolute hard limit of 200.
+    MAX_ENTRIES is an absolute hard limit of 40000.
 
     Up to `workers` requests may already be running when the target
     is reached. Those requests cannot always be cancelled because
@@ -955,7 +955,7 @@ def scrape_data(
     However, once target_count is reached:
         - no new pages are submitted
         - pending futures are cancelled where possible
-        - the returned list contains at most 200 entries
+        - the returned list contains at most 40000 entries
     """
 
     if workers < 1:
@@ -970,7 +970,7 @@ def scrape_data(
     if delay_seconds < 0:
         raise ValueError("delay_seconds cannot be negative")
 
-    # Never allow more than 200 entries.
+    # Never allow more than 40000 entries.
     target_count = min(
         target_count,
         MAX_ENTRIES,
@@ -1007,7 +1007,7 @@ def scrape_data(
             #
             # IMPORTANT:
             # We check len(all_entries) BEFORE every submission.
-            # This prevents submitting new work after reaching 200.
+            # This prevents submitting new work after reaching 40000.
             # ------------------------------------------------------------
             while (
                 len(active_futures) < workers
@@ -1138,7 +1138,7 @@ def scrape_data(
                 # --------------------------------------------------------
                 # HARD STOP.
                 #
-                # This guarantees that the list can never exceed 200.
+                # This guarantees that the list can never exceed 40000.
                 # --------------------------------------------------------
                 if len(all_entries) >= target_count:
                     break
