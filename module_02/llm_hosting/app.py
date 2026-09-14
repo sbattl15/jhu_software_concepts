@@ -1,5 +1,14 @@
 # -*- coding: utf-8 -*-
-"""Flask + tiny local LLM standardizer with incremental JSONL CLI output."""
+"""Flask + tiny local LLM standardizer with incremental JSON-array CLI output.
+
+The CLI path (--file) parallelizes row processing across multiple worker
+*processes* (not threads) via ProcessPoolExecutor. Each worker loads its
+own private llama.cpp model instance, since a single llama.cpp context
+cannot safely serve concurrent generate() calls from multiple threads. With
+NUM_WORKERS worker processes each running WORKER_N_THREADS llama.cpp
+threads internally, the product of the two should roughly match your
+machine's logical CPU count (defaults: 12 workers x 1 thread = 12 cores).
+"""
 
 from __future__ import annotations
 
@@ -8,6 +17,7 @@ import os
 import re
 import sys
 import difflib
+from concurrent.futures import ProcessPoolExecutor
 from typing import Any, Dict, List, Tuple
 
 from flask import Flask, jsonify, request
@@ -26,9 +36,22 @@ MODEL_FILE = os.getenv(
     "tinyllama-1.1b-chat-v1.0.Q4_K_M.gguf",
 )
 
+# Threads a single Llama instance uses (the Flask /standardize path, and
+# the CLI path when --workers 1). Defaults to all logical CPUs.
 N_THREADS = int(os.getenv("N_THREADS", str(os.cpu_count() or 2)))
 N_CTX = int(os.getenv("N_CTX", "2048"))
 N_GPU_LAYERS = int(os.getenv("N_GPU_LAYERS", "0"))  # 0 → CPU-only
+
+# ---------------- CLI multiprocessing config ----------------
+# How many worker *processes* the CLI (--file) path fans out across.
+# Each process loads its own independent Llama instance/context, since
+# llama.cpp contexts aren't safe to share across concurrent generations.
+NUM_WORKERS = int(os.getenv("NUM_WORKERS", "12"))
+# llama.cpp threads *within* each worker process. With NUM_WORKERS
+# processes already splitting the CPU budget, each one typically only
+# needs a sliver of the total core count (default 1 thread/worker so
+# NUM_WORKERS x WORKER_N_THREADS lines up with a 12-core machine).
+WORKER_N_THREADS = int(os.getenv("WORKER_N_THREADS", "1"))
 
 CANON_UNIS_PATH = os.getenv("CANON_UNIS_PATH", "canon_universities.txt")
 CANON_PROGS_PATH = os.getenv("CANON_PROGS_PATH", "canon_programs.txt")
@@ -113,13 +136,14 @@ FEW_SHOTS: List[Tuple[Dict[str, str], Dict[str, str]]] = [
 _LLM: Llama | None = None
 
 
-def _load_llm() -> Llama:
-    """Download (or reuse) the GGUF file and initialize llama.cpp."""
-    global _LLM
-    if _LLM is not None:
-        return _LLM
+def _ensure_model_downloaded() -> str:
+    """Download (or reuse) the GGUF file and return its local path.
 
-    model_path = hf_hub_download(
+    Called once up-front in the main process before spawning workers, so
+    NUM_WORKERS processes don't all race to download the same file over
+    the network the first time this is run.
+    """
+    return hf_hub_download(
         repo_id=MODEL_REPO,
         filename=MODEL_FILE,
         local_dir="models",
@@ -127,10 +151,19 @@ def _load_llm() -> Llama:
         force_filename=MODEL_FILE,
     )
 
+
+def _load_llm(n_threads: int | None = None) -> Llama:
+    """Load (or reuse) this process's private llama.cpp instance."""
+    global _LLM
+    if _LLM is not None:
+        return _LLM
+
+    model_path = _ensure_model_downloaded()
+
     _LLM = Llama(
         model_path=model_path,
         n_ctx=N_CTX,
-        n_threads=N_THREADS,
+        n_threads=n_threads if n_threads is not None else N_THREADS,
         n_gpu_layers=N_GPU_LAYERS,
         verbose=False,
     )
@@ -206,7 +239,7 @@ def _post_normalize_university(uni: str) -> str:
 
 
 def _call_llm(program_text: str) -> Dict[str, str]:
-    """Query the tiny LLM and return standardized fields."""
+    """Query this process's tiny LLM and return standardized fields."""
     llm = _load_llm()
 
     messages = [{"role": "system", "content": SYSTEM_PROMPT}]
@@ -283,37 +316,190 @@ def standardize() -> Any:
     return jsonify({"rows": out})
 
 
+# ============================================================================
+# Worker-process pool for the CLI path
+# ============================================================================
+
+def _pool_worker_init(n_threads: int) -> None:
+    """Runs once in each freshly-started worker process: loads a private
+    Llama instance so concurrent workers never share one llama.cpp
+    context/model (concurrent generate() calls on a shared context aren't
+    safe)."""
+    global N_THREADS
+    N_THREADS = n_threads
+    _load_llm(n_threads=n_threads)
+
+
+def _worker_call_llm(program_text: str) -> Dict[str, str]:
+    """Top-level (picklable) entry point ProcessPoolExecutor.map calls in
+    each worker process."""
+    return _call_llm(program_text)
+
+
+# How often (in processed rows) the CLI rewrites the output file, so a long
+# run stays resumable / viewable partway through without paying the cost of
+# rewriting the whole array after every single row.
+_CHECKPOINT_EVERY = 200
+
+
+def _dump_json_array(entries: List[Dict[str, Any]], sink) -> None:
+    """Write `entries` as one indented JSON array, matching the format
+    produced by clean.py's save_data (indent=2, ensure_ascii=False)."""
+    json.dump(entries, sink, ensure_ascii=False, indent=2)
+    sink.write("\n")
+
+
 def _cli_process_file(
     in_path: str,
     out_path: str | None,
     append: bool,
     to_stdout: bool,
+    workers: int = NUM_WORKERS,
+    worker_threads: int = WORKER_N_THREADS,
 ) -> None:
-    """Process a JSON file and write JSONL incrementally."""
+    """Process a JSON file and write a single JSON array (not JSON Lines),
+    so the CLI output matches the array format `clean.py` produces.
+
+    Rows are farmed out across `workers` worker *processes* (each with its
+    own private llama.cpp instance running `worker_threads` internal
+    threads), using ProcessPoolExecutor.map so results still land back in
+    the original row order despite running concurrently.
+
+    Periodically re-writes the full array to disk (every
+    `_CHECKPOINT_EVERY` rows and always at the end) so a long run stays
+    crash-safe and viewable partway through, without the O(n^2) cost of
+    rewriting the file after every single row.
+
+    With --append, if the output file already exists and is a valid JSON
+    array, entries already present (matched by "url") are skipped so a run
+    can be resumed instead of reprocessing everything from scratch.
+    """
     with open(in_path, "r", encoding="utf-8") as f:
         rows = _normalize_input(json.load(f))
 
-    sink = sys.stdout if to_stdout else None
-    if not to_stdout:
-        out_path = out_path or (in_path + ".jsonl")
-        mode = "a" if append else "w"
-        sink = open(out_path, mode, encoding="utf-8")
+    out_path = None if to_stdout else (out_path or (in_path + ".out.json"))
 
-    assert sink is not None  # for type-checkers
+    processed: List[Dict[str, Any]] = []
+    seen_urls: set[str] = set()
 
-    try:
-        for row in rows:
-            program_text = (row or {}).get("program") or ""
-            result = _call_llm(program_text)
-            row["llm-generated-program"] = result["standardized_program"]
-            row["llm-generated-university"] = result["standardized_university"]
+    if append and out_path and os.path.exists(out_path) and os.path.getsize(out_path) > 0:
+        try:
+            with open(out_path, "r", encoding="utf-8") as f:
+                existing = json.load(f)
+            if isinstance(existing, list):
+                processed = existing
+                seen_urls = {
+                    row.get("url") for row in processed if isinstance(row, dict) and row.get("url")
+                }
+                print(
+                    f"[resume] {len(processed):,} entries already in "
+                    f"{out_path}; skipping those."
+                )
+        except (json.JSONDecodeError, OSError):
+            processed = []
+            seen_urls = set()
 
-            json.dump(row, sink, ensure_ascii=False)
-            sink.write("\n")
-            sink.flush()
-    finally:
-        if sink is not sys.stdout:
-            sink.close()
+    pending = (
+        [row for row in rows if not (isinstance(row, dict) and row.get("url") in seen_urls)]
+        if seen_urls
+        else rows
+    )
+
+    def _checkpoint() -> None:
+        if to_stdout:
+            _dump_json_array(processed, sys.stdout)
+        else:
+            with open(out_path, "w", encoding="utf-8") as sink:
+                _dump_json_array(processed, sink)
+
+    total_pending = len(pending)
+
+    if total_pending == 0:
+        # Nothing new to process, but still make sure the destination
+        # reflects what we already have.
+        _checkpoint()
+        return
+
+    workers = max(1, workers)
+    program_texts = [(row or {}).get("program") or "" for row in pending]
+
+    # `_call_llm` runs at temperature=0.0, so it's deterministic: the same
+    # `program` string always produces the same standardized fields. Real
+    # GradCafe data is full of exact repeats (the same program/university
+    # gets posted by many applicants), so we only ever run the model once
+    # per *distinct* string and fan that cached result back out to every
+    # row that shares it -- this alone often cuts the number of actual LLM
+    # calls by more than half, with no change in output quality.
+    unique_texts = list(dict.fromkeys(program_texts))
+    total_unique = len(unique_texts)
+
+    print(
+        f"[dedupe] {total_pending:,} pending rows -> {total_unique:,} distinct "
+        f"program strings to run through the model "
+        f"({total_pending - total_unique:,} rows will reuse a cached result).",
+        file=sys.stderr,
+    )
+
+    results_by_text: Dict[str, Dict[str, str]] = {}
+    unique_done = 0
+
+    def _record(text: str, result: Dict[str, str]) -> None:
+        nonlocal unique_done
+        results_by_text[text] = result
+        unique_done += 1
+        if unique_done % _CHECKPOINT_EVERY == 0 or unique_done == total_unique:
+            print(
+                f"[progress] {unique_done:,}/{total_unique:,} distinct "
+                f"program strings resolved",
+                file=sys.stderr,
+            )
+
+    if workers == 1:
+        # Small jobs (or explicit --workers 1) skip process-pool overhead
+        # entirely and just run in this process, like before.
+        for text in unique_texts:
+            _record(text, _call_llm(text))
+    else:
+        # Pre-download the model once here so the worker processes about
+        # to start don't all race to fetch it over the network at once.
+        _ensure_model_downloaded()
+
+        print(
+            f"[workers] Fanning out across {workers} worker processes "
+            f"({worker_threads} llama.cpp thread(s) each).",
+            file=sys.stderr,
+        )
+
+        with ProcessPoolExecutor(
+            max_workers=workers,
+            initializer=_pool_worker_init,
+            initargs=(worker_threads,),
+        ) as executor:
+            # .map keeps results in input order even though the underlying
+            # work runs concurrently across worker processes/CPUs.
+            for text, result in zip(unique_texts, executor.map(_worker_call_llm, unique_texts)):
+                _record(text, result)
+
+    # Fan the (much smaller) set of cached results back out to every
+    # pending row, including duplicates -- pure dict lookups, no LLM calls,
+    # so this pass is essentially instant even for tens of thousands of
+    # rows. Still checkpoints periodically at row granularity so --out
+    # keeps updating the way it did before.
+    completed = 0
+    for row, program_text in zip(pending, program_texts):
+        result = results_by_text[program_text]
+        row["llm-generated-program"] = result["standardized_program"]
+        row["llm-generated-university"] = result["standardized_university"]
+        processed.append(row)
+        completed += 1
+
+        if completed % _CHECKPOINT_EVERY == 0 or completed == total_pending:
+            _checkpoint()
+
+    print(
+        f"[progress] {len(processed):,}/{len(rows):,} entries processed",
+        file=sys.stderr,
+    )
 
 
 if __name__ == "__main__":
@@ -335,18 +521,35 @@ if __name__ == "__main__":
     parser.add_argument(
         "--out",
         default=None,
-        help="Output path for JSON Lines (ndjson). "
-        "Defaults to <input>.jsonl when --file is set.",
+        help="Output path for a single JSON array. "
+        "Defaults to <input>.out.json when --file is set.",
     )
     parser.add_argument(
         "--append",
         action="store_true",
-        help="Append to the output file instead of overwriting.",
+        help="Resume into an existing --out JSON array, skipping entries "
+        "already present (matched by url) instead of reprocessing them.",
     )
     parser.add_argument(
         "--stdout",
         action="store_true",
-        help="Write JSON Lines to stdout instead of a file.",
+        help="Write the JSON array to stdout instead of a file.",
+    )
+    parser.add_argument(
+        "--workers",
+        type=int,
+        default=NUM_WORKERS,
+        help=f"Worker processes to fan the CLI run across (default: {NUM_WORKERS}, "
+        "i.e. NUM_WORKERS env var). Use --workers 1 to run single-process "
+        "like before.",
+    )
+    parser.add_argument(
+        "--worker-threads",
+        type=int,
+        default=WORKER_N_THREADS,
+        help="llama.cpp threads per worker process (default: "
+        f"{WORKER_N_THREADS}, i.e. WORKER_N_THREADS env var). Workers x "
+        "worker-threads should roughly match your CPU core count.",
     )
     args = parser.parse_args()
 
@@ -359,4 +562,6 @@ if __name__ == "__main__":
             out_path=args.out,
             append=bool(args.append),
             to_stdout=bool(args.stdout),
+            workers=args.workers,
+            worker_threads=args.worker_threads,
         )

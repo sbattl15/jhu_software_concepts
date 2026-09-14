@@ -26,128 +26,43 @@ def _clean_text(
 
 
 # ============================================================================
-# Parsing helpers
+# Structured-field parsing
 # ============================================================================
 
-def _split_program_university(
-    program_text: str,
-    school_text: str = "",
-) -> tuple[str, str]:
+# Degree token that GradCafe appends to the end of the raw program name,
+# e.g. "Speech Language Pathology Masters" -> program="Speech Language
+# Pathology", degree="Masters".
+_DEGREE_SUFFIX_RE = re.compile(
+    r"\s*\b(Master'?s|Masters|MS|MSc|MA|MBA|MEng|MFA|PsyD|Ph\.?D\.?|"
+    r"Doctorate|EdD|MPH|JD|Other)\s*$",
+    re.IGNORECASE,
+)
 
-    program_text = _clean_text(
-        program_text
-    )
-
-    school_text = _clean_text(
-        school_text
-    )
-
-    if program_text and school_text:
-
-        if (
-            program_text.lower()
-            != school_text.lower()
-        ):
-            return (
-                program_text,
-                school_text,
-            )
-
-    combined = (
-        program_text
-        or school_text
-    )
-
-    if not combined:
-        return "", ""
-
-    if "," in combined:
-
-        program, university = combined.rsplit(
-            ",",
-            1,
-        )
-
-        return (
-            _clean_text(program),
-            _clean_text(university),
-        )
-
-    return combined, ""
+# The leading structured block that GradCafe prepends to every meta/comment
+# line, in a fixed order: status (+ date), term, applicant type, GRE scores,
+# GPA. Anything left over after this prefix is matched is a genuine
+# free-text comment.
+_META_PREFIX_RE = re.compile(
+    r"^\s*"
+    r"(?:Accepted|Rejected|Wait\s*listed|Interview)"
+    r"(?:\s+on\s+[A-Za-z]{3,9}\s+\d{1,2})?"
+    r"(?:\s+(?:Spring|Summer|Fall|Winter)\s+\d{4})?"
+    r"(?:\s+(?:International|American|Other|0))?"
+    r"(?:\s+GRE\s*[:\-]?\s*\d{2,3})?"
+    r"(?:\s+GRE\s*V\s*[:\-]?\s*\d{2,3})?"
+    r"(?:\s+GRE\s*AW\s*[:\-]?\s*\d(?:\.\d{1,2})?)?"
+    r"(?:\s+GPA\s*[:\-]?\s*[0-4](?:\.\d{1,3})?)?"
+    r"\s*",
+    re.IGNORECASE,
+)
 
 
-def _parse_status(
-    text: str,
-) -> tuple[str, str, str]:
-
-    text = _clean_text(text)
-
-    status = ""
-    accepted_date = ""
-    rejected_date = ""
-
-    accepted_match = re.search(
-        r"\bAccepted\b"
-        r"(?:\s+on\s+)?"
-        r"([A-Za-z]{3,9}\s+\d{1,2})?",
-        text,
-        re.IGNORECASE,
-    )
-
-    if accepted_match:
-
-        status = "Accepted"
-
-        if accepted_match.group(1):
-            accepted_date = _clean_text(
-                accepted_match.group(1)
-            )
-
-    rejected_match = re.search(
-        r"\bRejected\b"
-        r"(?:\s+on\s+)?"
-        r"([A-Za-z]{3,9}\s+\d{1,2})?",
-        text,
-        re.IGNORECASE,
-    )
-
-    if rejected_match:
-
-        status = "Rejected"
-
-        if rejected_match.group(1):
-            rejected_date = _clean_text(
-                rejected_match.group(1)
-            )
-
-    if re.search(
-        r"\bWait\s*listed\b",
-        text,
-        re.IGNORECASE,
-    ):
-        status = "Wait listed"
-
-    if re.search(
-        r"\bInterview\b",
-        text,
-        re.IGNORECASE,
-    ):
-        status = "Interview"
-
-    return (
-        status,
-        accepted_date,
-        rejected_date,
-    )
-
-
-def _parse_semester_year(
+def _parse_term(
     text: str,
 ) -> str:
 
     match = re.search(
-        r"\b(Spring|Summer|Fall|Winter)"
-        r"\s+(\d{4})\b",
+        r"\b(Spring|Summer|Fall|Winter)\s+(\d{4})\b",
         text,
         re.IGNORECASE,
     )
@@ -155,57 +70,18 @@ def _parse_semester_year(
     if not match:
         return ""
 
-    return (
-        f"{match.group(1).capitalize()} "
-        f"{match.group(2)}"
-    )
+    return f"{match.group(1).capitalize()} {match.group(2)}"
 
 
 def _parse_student_type(
     text: str,
 ) -> str:
 
-    if re.search(
-        r"\bInternational\b",
-        text,
-        re.IGNORECASE,
-    ):
+    if re.search(r"\bInternational\b", text, re.IGNORECASE):
         return "International"
 
-    if re.search(
-        r"\bAmerican\b",
-        text,
-        re.IGNORECASE,
-    ):
+    if re.search(r"\bAmerican\b", text, re.IGNORECASE):
         return "American"
-
-    if re.search(
-        r"\bUS\b",
-        text,
-        re.IGNORECASE,
-    ):
-        return "American"
-
-    return ""
-
-
-def _parse_degree(
-    text: str,
-) -> str:
-
-    if re.search(
-        r"\b(Master'?s|Masters|MS|MSc|MA|MBA|MEng|MFA)\b",
-        text,
-        re.IGNORECASE,
-    ):
-        return "Masters"
-
-    if re.search(
-        r"\b(Ph\.?D\.?|Doctorate)\b",
-        text,
-        re.IGNORECASE,
-    ):
-        return "PhD"
 
     return ""
 
@@ -215,65 +91,41 @@ def _parse_gpa(
 ) -> str:
 
     match = re.search(
-        r"\bGPA\s*[:\-]?\s*"
-        r"([0-4](?:\.\d{1,3})?)\b",
+        r"\bGPA\s*[:\-]?\s*([0-4](?:\.\d{1,3})?)\b",
         text,
         re.IGNORECASE,
     )
 
-    return (
-        match.group(1)
-        if match
-        else ""
-    )
+    return f"GPA {match.group(1)}" if match else ""
 
 
-def _parse_gre(
-    text: str,
-) -> tuple[str, str, str]:
+def _extract_degree(
+    program_text: str,
+) -> tuple[str, str]:
+    """Split the trailing degree token (Masters/PhD/...) off the raw
+    program text. Returns (program_name_without_degree, degree)."""
 
-    gre_score = ""
-    gre_v_score = ""
-    gre_aw = ""
+    match = _DEGREE_SUFFIX_RE.search(program_text)
 
-    match = re.search(
-        r"\bGRE\s*[:\-]?\s*(\d{3})\b",
-        text,
-        re.IGNORECASE,
-    )
+    if not match:
+        return _clean_text(program_text), ""
 
-    if match:
-        gre_score = match.group(1)
+    degree = _clean_text(match.group(1))
+    program_name = _clean_text(program_text[: match.start()])
 
-    match = re.search(
-        r"\b(?:GRE\s*)?"
-        r"(?:V|Verbal)"
-        r"\s*[:\-]?\s*"
-        r"(\d{2,3})\b",
-        text,
-        re.IGNORECASE,
-    )
+    return program_name, degree
 
-    if match:
-        gre_v_score = match.group(1)
 
-    match = re.search(
-        r"\b(?:GRE\s*)?"
-        r"(?:AW|AWA|Analytical\s+Writing)"
-        r"\s*[:\-]?\s*"
-        r"(\d(?:\.\d)?)\b",
-        text,
-        re.IGNORECASE,
-    )
+def _extract_comment(
+    meta_text: str,
+) -> str:
+    """Strip the leading structured block (status/date/term/type/GRE/GPA)
+    off the raw meta text, leaving only the genuine free-text comment."""
 
-    if match:
-        gre_aw = match.group(1)
+    match = _META_PREFIX_RE.match(meta_text)
+    residue = meta_text[match.end():] if match else meta_text
 
-    return (
-        gre_score,
-        gre_v_score,
-        gre_aw,
-    )
+    return _clean_text(residue)
 
 
 # ============================================================================
@@ -286,7 +138,8 @@ def clean_data(
     """
     Turn a list of raw scraped entries (raw_school_text, raw_program_text,
     raw_comment_text, raw_added_on_text, raw_decision_text, raw_meta_text,
-    url) into a list of cleaned, structured entries.
+    url) into a list of cleaned, structured entries ready for the
+    llm-generated-program / llm-generated-university tagging step.
     """
 
     cleaned: list[dict] = []
@@ -294,103 +147,56 @@ def clean_data(
     for entry in raw_entries:
 
         school_text = _clean_text(
-            entry.get(
-                "raw_school_text"
-            )
+            entry.get("raw_school_text")
         )
 
         program_text = _clean_text(
-            entry.get(
-                "raw_program_text"
-            )
+            entry.get("raw_program_text")
         )
 
-        program_name, university = (
-            _split_program_university(
-                program_text,
-                school_text,
-            )
+        program_name, degree = _extract_degree(
+            program_text
         )
 
-        comments = _clean_text(
-            entry.get(
-                "raw_comment_text"
-            )
+        program = ", ".join(
+            part for part in (program_name, school_text) if part
         )
 
-        date_added = _clean_text(
-            entry.get(
-                "raw_added_on_text"
-            )
+        comments = _extract_comment(
+            _clean_text(entry.get("raw_comment_text"))
         )
+
+        raw_added_on = _clean_text(
+            entry.get("raw_added_on_text")
+        )
+
+        if raw_added_on and not raw_added_on.lower().startswith("added on"):
+            date_added = f"Added on {raw_added_on}"
+        else:
+            date_added = raw_added_on
 
         url = _clean_text(
-            entry.get(
-                "url"
-            )
+            entry.get("url")
         )
 
-        decision_text = _clean_text(
-            entry.get(
-                "raw_decision_text"
-            )
+        status = _clean_text(
+            entry.get("raw_decision_text")
         )
 
         meta_text = _clean_text(
-            entry.get(
-                "raw_meta_text"
-            )
+            entry.get("raw_meta_text")
         )
 
-        searchable_text = " ".join(
-            [
-                decision_text,
-                meta_text,
-            ]
-        )
-
-        (
-            status,
-            accepted_date,
-            rejected_date,
-        ) = _parse_status(
-            searchable_text
-        )
-
-        semester_year = _parse_semester_year(
-            searchable_text
-        )
-
-        student_type = _parse_student_type(
-            searchable_text
-        )
-
-        degree = _parse_degree(
-            searchable_text
-        )
-
-        gpa = _parse_gpa(
-            searchable_text
-        )
-
-        (
-            gre_score,
-            gre_v_score,
-            gre_aw,
-        ) = _parse_gre(
-            searchable_text
-        )
+        term = _parse_term(meta_text)
+        student_type = _parse_student_type(meta_text)
+        gpa = _parse_gpa(meta_text)
 
         cleaned_entry: dict[str, str] = {}
 
-        if program_name:
-            cleaned_entry["program_name"] = program_name
+        if program:
+            cleaned_entry["program"] = program
 
-        if university:
-            cleaned_entry["university"] = university
-
-        if comments:
-            cleaned_entry["comments"] = comments
+        cleaned_entry["comments"] = comments
 
         if date_added:
             cleaned_entry["date_added"] = date_added
@@ -399,34 +205,19 @@ def clean_data(
             cleaned_entry["url"] = url
 
         if status:
-            cleaned_entry["applicant_status"] = status
+            cleaned_entry["status"] = status
 
-        if accepted_date:
-            cleaned_entry["accepted_date"] = accepted_date
-
-        if rejected_date:
-            cleaned_entry["rejected_date"] = rejected_date
-
-        if semester_year:
-            cleaned_entry["semester_year"] = semester_year
+        if term:
+            cleaned_entry["term"] = term
 
         if student_type:
-            cleaned_entry["international_american"] = student_type
-
-        if gre_score:
-            cleaned_entry["gre_score"] = gre_score
-
-        if gre_v_score:
-            cleaned_entry["gre_v_score"] = gre_v_score
-
-        if degree:
-            cleaned_entry["masters_phd"] = degree
+            cleaned_entry["US/International"] = student_type
 
         if gpa:
-            cleaned_entry["gpa"] = gpa
+            cleaned_entry["GPA"] = gpa
 
-        if gre_aw:
-            cleaned_entry["gre_aw"] = gre_aw
+        if degree:
+            cleaned_entry["Degree"] = degree
 
         cleaned.append(
             cleaned_entry
@@ -498,7 +289,8 @@ def main() -> int:
     parser = argparse.ArgumentParser(
         description=(
             "Clean a raw GradCafe JSON export into structured fields "
-            "(program_name, university, applicant_status, gpa, etc.)."
+            "(program, comments, date_added, url, status, term, "
+            "US/International, GPA, Degree)."
         )
     )
 
@@ -536,8 +328,3 @@ def main() -> int:
 
 if __name__ == "__main__":
     sys.exit(main())
-
-
-# use the two below commands to run app.py from the module_2 folder
-# cd llm_hosting
-# python app.py --file ../cleaned_applicant_data.json --out ../out.json

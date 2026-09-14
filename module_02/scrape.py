@@ -26,10 +26,10 @@ USER_AGENT = (
     "(+mailto:sbattl15@jh.edu; educational coursework)"
 )
 
-# Roughly how many entries GradCafe shows per page -- used only to translate
-# a desired entry count into a page count; actual entries returned depends
-# on how the site formats it.
-desired_entries = 400
+# Total number of entries desired, teh scraper pulls 20 entries
+# Per page. The function runs until it hits the desired number
+# Of pages.
+desired_entries = 40000
 MAX_PAGES = desired_entries // 20
 
 REQUEST_TIMEOUT_SECONDS = 15
@@ -251,8 +251,6 @@ def _fetch_and_parse_page(
 ) -> tuple[list[dict], Optional[str]]:
     if not can_fetch(url, robots_parser, USER_AGENT):
         raise PermissionError(f"robots.txt disallows {url}")
-
-    print(f"[fetch] fetching {url}")
 
     html = _fetch_html(url)
 
