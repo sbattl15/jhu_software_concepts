@@ -13,15 +13,27 @@ from psycopg import sql
 
 # --------------------------------------------------------------------------
 # Parsing helpers — the source JSON stores several fields as free-form
-# strings ("Added on Feb 17, 2026", "Accepted on Apr 15", "GPA 3.85").
-# We keep the raw string too, but also extract typed columns so the data
-# is actually queryable (date ranges, GPA comparisons, status filters).
+# strings ("Added on Feb 17, 2026", "GPA 3.85", "GRE 166", "GRE V 160",
+# "GRE AW 4.5"). We extract typed values out of those strings so the
+# database columns are actually queryable (date ranges, GPA/GRE
+# comparisons, etc.) instead of storing everything as opaque text.
 
 DATE_ADDED_RE = re.compile(r"^Added on (?P<date>.+)$")
 STATUS_RE = re.compile(
     r"^(?P<type>Accepted|Rejected|Interview|Wait listed) on (?P<date>.+)$"
 )
 GPA_RE = re.compile(r"^GPA\s+(?P<value>[\d.]+)$")
+
+# The source JSON (llm_extend_applicant_data.json) has no dedicated GRE
+# fields at all — unlike GPA, there is no "GRE" / "GRE V" / "GRE AW" key.
+# GRE scores show up only occasionally, buried in free-text `comments`
+# (e.g. "GRE 154V/161Q/4.0AW", "Q166 V162 AW4.0", "No GRE submitted"), in
+# no consistent format. Rather than guess at a regex for one-off prose and
+# risk silently mis-assigning a number to the wrong subscore, gre/gre_v/
+# gre_aw are left NULL. parse_score() is kept below (and wired up in
+# to_row) so that if a future export of this data adds real "GRE"/"GRE V"/
+# "GRE AW" keys, the loader picks them up automatically with no changes.
+SCORE_RE = re.compile(r"(?P<value>\d+(?:\.\d+)?)\s*$")
 
 DATE_ADDED_FMT = "%b %d, %Y"  # e.g. "Feb 17, 2026"
 
@@ -38,31 +50,38 @@ def parse_date_added(value: Optional[str]) -> Optional[date]:
         return None
 
 
-def parse_status(value: Optional[str]) -> tuple[Optional[str], Optional[str]]:
-    """Returns (status_type, status_date_text). No year is present in the
-    source status string (e.g. "Accepted on Apr 15"), and it isn't safe to
-    infer one from date_added (decisions are sometimes logged well before
-    or after the post date), so the month/day is kept as text rather than
-    guessing a DATE."""
-    if not value:
-        return None, None
-    m = STATUS_RE.match(value)
-    if not m:
-        return None, None
-    return m.group("type"), m.group("date")
-
-
 def parse_gpa(value: Optional[str]) -> Optional[float]:
+    """Parses the "GPA <value>" strings, e.g. "GPA 3.85". Some entries use
+    a weighted/non-4.0 scale (values up to ~4.9 appear in the data), so
+    this does not clamp or reject those — it just returns whatever number
+    was reported, keeping the column an honest float rather than silently
+    dropping ~100+ legitimate GPA values or risking a CHECK-constraint
+    failure that would abort the whole batch insert."""
     if not value:
         return None
     m = GPA_RE.match(value.strip())
     if not m:
         return None
     try:
-        gpa = float(m.group("value"))
+        return float(m.group("value"))
     except ValueError:
         return None
-    return gpa if 0 <= gpa <= 4.0 else None
+
+
+def parse_score(value: Optional[str]) -> Optional[float]:
+    """Extracts a trailing numeric score (GRE Quant/Verbal/AW) from a
+    free-form string such as "GRE 166" or "GRE AW 4.5". Returns None
+    (rather than raising) for missing or unparseable values so a record
+    with no GRE scores never blocks the load."""
+    if not value:
+        return None
+    m = SCORE_RE.search(value.strip())
+    if not m:
+        return None
+    try:
+        return float(m.group("value"))
+    except ValueError:
+        return None
 
 
 def clean_text(value: Optional[str]) -> Optional[str]:
@@ -78,21 +97,21 @@ def load_records(path: Path) -> list[dict[str, Any]]:
 
 
 def to_row(rec: dict[str, Any]) -> tuple:
-    status_type, status_date_text = parse_status(rec.get("status"))
     return (
         rec.get("program"),
-        rec.get("llm-generated-program"),
-        rec.get("llm-generated-university"),
-        rec.get("Degree"),
         clean_text(rec.get("comments")),
         parse_date_added(rec.get("date_added")),
         rec.get("url"),
-        rec.get("status"),
-        status_type,
-        status_date_text,
+        clean_text(rec.get("status")),
         rec.get("term"),
         rec.get("US/International"),
         parse_gpa(rec.get("GPA")),
+        parse_score(rec.get("GRE")),
+        parse_score(rec.get("GRE V")),
+        parse_score(rec.get("GRE AW")),
+        rec.get("Degree"),
+        rec.get("llm-generated-program"),
+        rec.get("llm-generated-university"),
     )
 
 
@@ -128,39 +147,47 @@ def create_database_if_missing(
 
 # --------------------------------------------------------------------------
 # Schema
+#
+# Matches the required "applicants" table exactly: p_id, program, comments,
+# date_added, url, status, term, us_or_international, gpa, gre, gre_v,
+# gre_aw, degree, llm_generated_program, llm_generated_university.
 
+# Note: gpa has no CHECK range constraint — a small number of source
+# entries report a weighted/non-4.0-scale GPA above 4.0 (up to ~4.9), and
+# a per-row constraint violation would abort the entire executemany()
+# batch insert below rather than just that one row.
 CREATE_TABLE_SQL = """
 CREATE TABLE IF NOT EXISTS applicants (
-    id                          SERIAL PRIMARY KEY,
-    program                     TEXT NOT NULL,       -- raw "Program, University" string
-    llm_generated_program       TEXT,                -- normalized program name
-    llm_generated_university    TEXT,                -- normalized university name
-    degree                      TEXT,                -- PhD, Masters, MFA, PsyD, Other, MBA, EdD, JD
-    comments                    TEXT,
-    date_added                  DATE,                -- parsed from "Added on <date>"
-    url                         TEXT NOT NULL UNIQUE, -- thegradcafe.com result URL, natural key
-    status_raw                  TEXT,                -- original "<Type> on <date>" string
-    status_type                 TEXT CHECK (status_type IN ('Accepted', 'Rejected', 'Interview', 'Wait listed')),
-    status_date_text            TEXT,                -- month/day only, no reliable year available
-    term                        TEXT,                -- e.g. "Fall 2026"
-    us_international            TEXT CHECK (us_international IN ('American', 'International')),
-    gpa                         NUMERIC(3, 2) CHECK (gpa IS NULL OR (gpa >= 0 AND gpa <= 4.0))
+    p_id                        SERIAL PRIMARY KEY,   -- unique identifier
+    program                     TEXT NOT NULL,        -- University and Department/Program
+    comments                    TEXT,                 -- applicant comments
+    date_added                  DATE,                 -- date entry was added
+    url                         TEXT NOT NULL UNIQUE, -- link to Grad Cafe entry (natural key)
+    status                      TEXT,                 -- admission status
+    term                        TEXT,                 -- intended start term
+    us_or_international         TEXT,                 -- applicant nationality classification
+    gpa                         REAL,                 -- applicant GPA
+    gre                         REAL,                 -- GRE Quantitative score
+    gre_v                       REAL,                 -- GRE Verbal score
+    gre_aw                      REAL,                 -- GRE Analytical Writing score
+    degree                      TEXT,                 -- degree type
+    llm_generated_program       TEXT,                 -- LLM-generated department/program
+    llm_generated_university    TEXT                  -- LLM-generated university
 );
 
 CREATE INDEX IF NOT EXISTS idx_applicants_university  ON applicants (llm_generated_university);
 CREATE INDEX IF NOT EXISTS idx_applicants_program      ON applicants (llm_generated_program);
 CREATE INDEX IF NOT EXISTS idx_applicants_term         ON applicants (term);
-CREATE INDEX IF NOT EXISTS idx_applicants_status_type  ON applicants (status_type);
 CREATE INDEX IF NOT EXISTS idx_applicants_degree       ON applicants (degree);
 """
 
 INSERT_SQL = """
 INSERT INTO applicants (
-    program, llm_generated_program, llm_generated_university, degree,
-    comments, date_added, url, status_raw, status_type, status_date_text,
-    term, us_international, gpa
+    program, comments, date_added, url, status, term,
+    us_or_international, gpa, gre, gre_v, gre_aw, degree,
+    llm_generated_program, llm_generated_university
 ) VALUES (
-    %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s
+    %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s
 )
 ON CONFLICT (url) DO NOTHING;
 """
