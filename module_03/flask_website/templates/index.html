@@ -8,15 +8,50 @@
 </head>
 <body>
   <header class="page-header">
-    <div class="wrap">
-      <h1>GradCafe Applicant Analysis</h1>
-      <p class="subtitle">
-        Live results from the <code>applicants</code> PostgreSQL table, read through the
-        SQLAlchemy <code>Applicant</code> model.
-      </p>
-      <p class="generated">Generated {{ generated_at }}</p>
+    <div class="wrap header-row">
+      <div>
+        <h1>GradCafe Applicant Analysis</h1>
+        <p class="subtitle">
+          Live results from the <code>applicants</code> PostgreSQL table, read through the
+          SQLAlchemy <code>Applicant</code> model.
+        </p>
+        <p class="generated">Generated {{ generated_at }}</p>
+      </div>
+      <div class="header-actions">
+        <form method="post" action="{{ url_for('pull_data') }}">
+          <button type="submit" class="btn btn-primary" {% if pull_status.running %}disabled{% endif %}>
+            Pull Data
+          </button>
+        </form>
+        <form method="get" action="{{ url_for('analysis') }}">
+          <button type="submit" class="btn btn-secondary">Update Analysis</button>
+        </form>
+      </div>
     </div>
   </header>
+
+  {% with messages = get_flashed_messages(with_categories=true) %}
+    {% if messages %}
+    <div class="wrap flash-area">
+      {% for category, message in messages %}
+      <p class="flash flash-{{ category }}">{{ message }}</p>
+      {% endfor %}
+    </div>
+    {% endif %}
+  {% endwith %}
+
+  <div class="wrap">
+    <p class="pull-explainer">
+      <strong>Pull Data</strong> checks Grad Cafe for newly submitted application results and adds
+      new records to the database. Depending on the amount of new data available, this may take
+      some time (each new entry is also run through a local LLM to standardize its program and
+      university name) &mdash; feel free to keep using the page while it runs.
+    </p>
+    <p id="pull-status" class="pull-status status-{{ 'running' if pull_status.running else ('ok' if pull_status.success else ('error' if pull_status.success == false else 'idle')) }}"
+       data-poll="{{ 'true' if pull_status.running else 'false' }}">
+      {{ pull_status.message }}
+    </p>
+  </div>
 
   <main class="wrap">
 
@@ -87,5 +122,42 @@
       <p>Part 8, Part A &mdash; Flask + SQLAlchemy + PostgreSQL analysis page.</p>
     </div>
   </footer>
+
+  <script>
+    // Live status polling for the Pull Data banner. Only polls while a
+    // pull is running (server-rendered data-poll flag), so an idle page
+    // never makes background requests. Does NOT trigger a scrape itself --
+    // read-only polling of /pull-data/status.
+    (function () {
+      var statusEl = document.getElementById("pull-status");
+      var pullButton = document.querySelector(".btn-primary");
+      if (!statusEl || statusEl.dataset.poll !== "true") return;
+
+      var statusUrl = "{{ url_for('pull_data_status') }}";
+
+      function poll() {
+        fetch(statusUrl)
+          .then(function (resp) { return resp.json(); })
+          .then(function (data) {
+            statusEl.textContent = data.message;
+            if (data.running) {
+              statusEl.className = "pull-status status-running";
+              if (pullButton) pullButton.disabled = true;
+              setTimeout(poll, 4000);
+            } else {
+              statusEl.className = "pull-status " + (data.success ? "status-ok" : "status-error");
+              if (pullButton) pullButton.disabled = false;
+            }
+          })
+          .catch(function () {
+            // Network hiccup polling status -- try again shortly rather
+            // than leaving the banner stuck.
+            setTimeout(poll, 6000);
+          });
+      }
+
+      setTimeout(poll, 1000);
+    })();
+  </script>
 </body>
 </html>
