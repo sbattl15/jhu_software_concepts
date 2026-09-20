@@ -12,28 +12,21 @@ conn = psycopg.connect(
 try:
     with conn.cursor() as cur:
         # Qeustion 1
-        cur.execute("SELECT count(*) FROM applicants WHERE term = %s;", ("Fall 2026",))
+        cur.execute("SELECT count(*) FROM applicants WHERE term = 'Fall 2026';")
         count1 = cur.fetchone()[0]
 
         # Question 2
         cur.execute(
             """
-            SELECT ROUND(
-                           COUNT(*) FILTER (WHERE us_or_international = 'International')::numeric
-                        * 100.0
-                        / NULLIF(
-                            COUNT(*) FILTER (
-                                WHERE us_or_international IS NOT NULL
-                                  AND btrim(us_or_international) <> ''
-                            ),
-                            0
-                        ),
-                           2
-                   ) AS percent_international
+            SELECT COUNT(*) FILTER (WHERE us_or_international = 'International') AS international_count, COUNT(*) FILTER (
+                    WHERE us_or_international IS NOT NULL AND btrim(us_or_international) <> ''
+                ) AS classified_count
             FROM applicants;
             """
         )
-        percent_international = cur.fetchone()[0]
+        international_count, classified_count = cur.fetchone()
+        percent_international = (
+            round(100.0 * international_count / classified_count, 2))
 
         # Question 3
         cur.execute(
@@ -53,11 +46,10 @@ try:
             """
             SELECT ROUND(AVG(gpa)::numeric, 2) AS avg_gpa_american_fall2026
             FROM applicants
-            WHERE term = %s
+            WHERE term = 'Fall 2026'
               AND us_or_international = 'American'
               AND gpa IS NOT NULL;
             """,
-            ("Fall 2026",),
         )
         avg_gpa_american_fall2026 = cur.fetchone()[0]
 
@@ -65,14 +57,13 @@ try:
         cur.execute(
             """
             SELECT ROUND(
-                COUNT(*) FILTER (WHERE term = %(term)s AND status LIKE 'Accepted%%')::numeric
+                COUNT(*) FILTER (WHERE term = 'Fall 2025' AND status LIKE 'Accepted%%')::numeric
                 * 100.0
-                / NULLIF(COUNT(*) FILTER (WHERE term = %(term)s), 0),
+                / NULLIF(COUNT(*) FILTER (WHERE term = 'Fall 2025'), 0),
                 2
             ) AS fall_2025_acceptance_pct
             FROM applicants;
             """,
-            {"term": "Fall 2025"},
         )
         fall_2025_acceptance_pct = cur.fetchone()[0]
 
@@ -81,11 +72,10 @@ try:
             """
             SELECT ROUND(AVG(gpa)::numeric, 2) AS avg_gpa_accepted_fall2026
             FROM applicants
-            WHERE term = %s
+            WHERE term = 'Fall 2025'
               AND status LIKE 'Accepted%%'
               AND gpa IS NOT NULL;
             """,
-            ("Fall 2026",),
         )
         avg_gpa_accepted_fall2026 = cur.fetchone()[0]
 
@@ -103,67 +93,43 @@ try:
 
         # Question 8
         cur.execute(
-            """
+            r"""
             SELECT count(*) AS q8_original_field_count
             FROM applicants
-            WHERE term = %(term)s
-              AND status LIKE %(accepted_pattern)s
-              AND degree = %(degree)s
-              AND program ILIKE %(cs_pattern)s
+            WHERE term = 'Fall 2026'
+              AND status LIKE 'Accepted%'
+              AND degree = 'PhD'
+              AND program ILIKE '%computer science%'
               AND (
-                program ILIKE %(georgetown_pattern)s
-               OR program ILIKE %(stanford_pattern)s
-               OR program ILIKE %(mit_full_pattern)s
-               OR program ~* %(mit_abbrev_regex)s
-               OR program ILIKE %(cmu_full_pattern)s
-               OR program ~* %(cmu_abbrev_regex)s
+                program ILIKE '%georgetown%'
+               OR program ILIKE '%stanford%'
+               OR program ILIKE '%massachusetts institute of technology%'
+               OR program ~* '\mmit\M'
+               OR program ILIKE '%carnegie mellon%'
+               OR program ~* '\mcmu\M'
                 );
-            """,
-            {
-                "term": "Fall 2026",
-                "accepted_pattern": "Accepted%",
-                "degree": "PhD",
-                "cs_pattern": "%computer science%",
-                "georgetown_pattern": "%georgetown%",
-                "stanford_pattern": "%stanford%",
-                "mit_full_pattern": "%massachusetts institute of technology%",
-                "mit_abbrev_regex": r"\mmit\M",
-                "cmu_full_pattern": "%carnegie mellon%",
-                "cmu_abbrev_regex": r"\mcmu\M",
-            },
+            """
         )
         original_field_count = cur.fetchone()[0]
 
         # Question 9
         cur.execute(
-            """
+            r"""
             SELECT count(*) AS q9_llm_field_count
             FROM applicants
-            WHERE term = %(term)s
-              AND status LIKE %(accepted_pattern)s
-              AND degree = %(degree)s
-              AND llm_generated_program ILIKE %(cs_pattern)s
+            WHERE term = 'Fall 2026'
+              AND status LIKE 'Accepted%'
+              AND degree = 'PhD'
+              AND llm_generated_program ILIKE '%computer science%'
               AND (
-                llm_generated_university ILIKE %(georgetown_pattern)s
-               OR llm_generated_university ILIKE %(stanford_pattern)s
-               OR llm_generated_university ILIKE %(mit_full_pattern)s
-               OR llm_generated_university ~* %(mit_abbrev_regex)s
-               OR llm_generated_university ILIKE %(cmu_full_pattern)s
-               OR llm_generated_university ~* %(cmu_abbrev_regex)s
+                llm_generated_university ILIKE '%georgetown%'
+               OR llm_generated_university ILIKE '%stanford%'
+               OR llm_generated_university ILIKE '%massachusetts institute of technology%'
+               OR llm_generated_university ~* '\mmit\M'
+               OR llm_generated_university ILIKE '%carnegie mellon%'
+               OR llm_generated_university ~* '\mcmu\M'
                 );
-            """,
-            {
-                "term": "Fall 2026",
-                "accepted_pattern": "Accepted%",
-                "degree": "PhD",
-                "cs_pattern": "%computer science%",
-                "georgetown_pattern": "%georgetown%",
-                "stanford_pattern": "%stanford%",
-                "mit_full_pattern": "%massachusetts institute of technology%",
-                "mit_abbrev_regex": r"\mmit\M",
-                "cmu_full_pattern": "%carnegie mellon%",
-                "cmu_abbrev_regex": r"\mcmu\M",
-            },
+            """
         )
         llm_field_count = cur.fetchone()[0]
 
@@ -171,64 +137,58 @@ try:
         # What is the acceptance percentage for applicants that have the following GPAs: 0-0.9, 1-1.9, 2.0-2.9, 3.0-3.9, 4.0-4.9?
         cur.execute(
             """
-            SELECT FLOOR(gpa)::int AS gpa_bucket, count(*) AS total_in_bucket,
+            SELECT CASE
+                       WHEN gpa < 1 THEN '0-0.9'
+                       WHEN gpa < 2 THEN '1-1.9'
+                       WHEN gpa < 3 THEN '2.0-2.9'
+                       WHEN gpa < 4 THEN '3.0-3.9'
+                       ELSE '4.0-4.9'
+                       END  AS gpa_bucket,
+                   count(*) AS total_in_bucket,
                    ROUND(
-                           100.0 * count(*) FILTER (WHERE status LIKE %(accepted_pattern)s):: numeric
+                           100.0 * count(*) FILTER (WHERE status LIKE '%Accepted%'):: numeric
                                / NULLIF (count (*), 0),
                            2
-                   ) AS acceptance_pct
+                   )        AS acceptance_pct
             FROM applicants
             WHERE gpa IS NOT NULL
-            GROUP BY FLOOR(gpa)
-            ORDER BY FLOOR(gpa);
+            GROUP BY 1
+            ORDER BY MIN(gpa);
             """,
-            {"accepted_pattern": "Accepted%"},
         )
         gpa_bucket_rows = cur.fetchall()
-        gpa_bucket_labels = {
-            0: '0-0.9',
-            1: '1-1.9',
-            2: '2.0-2.9',
-            3: '3.0-3.9',
-            4: '4.0-4.9',
-        }
 
         # Additional question 2
         # How many applicants are there each term? Has the number been trending up or down?
         cur.execute(
-            """
+            r"""
             SELECT term,
                    count(*) AS applicant_count
             FROM applicants
             WHERE term IS NOT NULL
             GROUP BY term
-            ORDER BY (regexp_match(term, %(year_regex)s))[1]::int,
+            ORDER BY (regexp_match(term, '\d{4}'))[1]::int,
                         CASE
-                            WHEN term LIKE %(spring_pattern)s THEN 0
-                WHEN term LIKE %(summer_pattern)s THEN 1
-                WHEN term LIKE %(fall_pattern)s THEN 2
-                WHEN term LIKE %(winter_pattern)s THEN 3
+                            WHEN term LIKE '%Spring%' THEN 0
+                WHEN term LIKE '%Summer%' THEN 1
+                WHEN term LIKE '%Fall%' THEN 2
+                WHEN term LIKE '%Winter%' THEN 3
                 ELSE 4
             END;
-            """,
-            {
-                "year_regex": r"\d{4}",
-                "spring_pattern": "Spring%",
-                "summer_pattern": "Summer%",
-                "fall_pattern": "Fall%",
-                "winter_pattern": "Winter%",
-            },
+            """
         )
         term_count_rows = cur.fetchall()
 
 finally:
     conn.close()
 
-
+# All the questions with their answers printed out
 print('Question 1: How many entries are from applicants who applied for Fall 2026?')
 print(f"Fall 2026 applicant count: {count1}")
+
 print('Question 2: Among entries that provide a nationality classification, what percentage are international students?')
 print(f'Percent international: {percent_international}%')
+
 print('Question 3: What are the average GPA, GRE Quantitative, GRE Verbal, and GRE Analytical Writing scores of applicants who provide each metric?')
 print(f'Average GPA: {avg_gpa}')
 print(f'Average GRE Quantitative: {avg_gre_q}')
@@ -248,7 +208,7 @@ print('Question 7: How many entries are from applicants who applied to Johns Hop
 print(f'Johns Hopkins Masters Computer Science count: {jhu_ms_cs_count}')
 
 print('Question 8: How many Fall 2026 entries are acceptances from applicants applying for a PhD in Computer Science at one of the following universities?'
-      '\n Georgetown University, Massachusetts Institute of Technology / MIT, Stanford University, Carnegie Mellon University')
+      '\nGeorgetown University, Massachusetts Institute of Technology / MIT, Stanford University, Carnegie Mellon University')
 print(f'Applicants for PhD in Computer Science at the above schools: {original_field_count}')
 
 print('Question 9: Repeat question 8 but use the LLM generated fields.')
@@ -256,13 +216,12 @@ print(f'Original-field count: {original_field_count}')
 print(f'LLM-field count: {llm_field_count}')
 print(f'Difference: +{original_field_count - llm_field_count}')
 
-print('What is the acceptance percentage for applicants that have the following GPAs: 0-0.9, 1-1.9, 2.0-2.9, 3.0-3.9, 4.0-4.9?')
+print('Additional Question 1: What is the acceptance percentage for applicants that have the following GPAs: 0-0.9, 1-1.9, 2.0-2.9, 3.0-3.9, 4.0-4.9?')
 for bucket, total_in_bucket, acceptance_pct in gpa_bucket_rows:
-    label = gpa_bucket_labels.get(bucket, f'{bucket}.0-{bucket}.9')
-    print(f'GPA {label} acceptance percentage: {acceptance_pct}% (n={total_in_bucket})')
+    print(f'GPA {bucket}: {acceptance_pct}% (n={total_in_bucket})')
 
 
-print('How many applicants are there each term? Has the number been trending up or down?')
+print('Additional Question 2: How many applicants are there each term? Has the number been trending up or down?')
 for term, applicant_count in term_count_rows:
     print(f'{term}: {applicant_count}')
 if term_count_rows[0] > term_count_rows[-1]:
