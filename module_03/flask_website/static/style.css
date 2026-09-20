@@ -1,0 +1,274 @@
+/* ------------------------------------------------------------------ */
+/* Design tokens (see project's dataviz palette: sequential blue, fixed
+   status colors, shared chart chrome/ink) -- light mode default, dark
+   mode selected via prefers-color-scheme.                             */
+
+:root {
+  color-scheme: light;
+  --surface-1:      #fcfcfb;
+  --page-plane:     #f9f9f7;
+  --text-primary:   #0b0b0b;
+  --text-secondary: #52514e;
+  --text-muted:     #898781;
+  --gridline:       #e1e0d9;
+  --border:         rgba(11, 11, 11, 0.10);
+
+  --seq-100: #cde2fb;
+  --seq-300: #6da7ec;
+  --seq-450: #2a78d6;
+  --seq-600: #184f95;
+
+  --status-good:     #0ca30c;
+  --status-critical: #d03b3b;
+
+  --font: system-ui, -apple-system, "Segoe UI", sans-serif;
+  --radius: 10px;
+}
+
+@media (prefers-color-scheme: dark) {
+  :root {
+    color-scheme: dark;
+    --surface-1:      #1a1a19;
+    --page-plane:     #0d0d0d;
+    --text-primary:   #ffffff;
+    --text-secondary: #c3c2b7;
+    --text-muted:     #898781;
+    --gridline:       #2c2c2a;
+    --border:         rgba(255, 255, 255, 0.10);
+
+    --seq-100: #b7d3f6;
+    --seq-300: #5598e7;
+    --seq-450: #3987e5;
+    --seq-600: #1c5cab;
+
+    --status-good:     #0ca30c;
+    --status-critical: #e66767;
+  }
+}
+
+* { box-sizing: border-box; }
+
+body {
+  margin: 0;
+  font-family: var(--font);
+  background: var(--page-plane);
+  color: var(--text-primary);
+  line-height: 1.5;
+}
+
+.wrap {
+  max-width: 1000px;
+  margin: 0 auto;
+  padding: 0 24px;
+}
+
+code {
+  background: var(--gridline);
+  padding: 0.1em 0.4em;
+  border-radius: 4px;
+  font-size: 0.9em;
+}
+
+/* Header / footer ---------------------------------------------------- */
+
+.page-header {
+  background: var(--surface-1);
+  border-bottom: 1px solid var(--border);
+  padding: 40px 0 28px;
+}
+
+.page-header h1 {
+  margin: 0 0 8px;
+  font-size: 1.9rem;
+  letter-spacing: -0.01em;
+}
+
+.subtitle {
+  margin: 0 0 4px;
+  color: var(--text-secondary);
+  max-width: 60ch;
+}
+
+.generated {
+  margin: 12px 0 0;
+  font-size: 0.85rem;
+  color: var(--text-muted);
+}
+
+.page-footer {
+  margin-top: 48px;
+  padding: 24px 0 40px;
+  color: var(--text-muted);
+  font-size: 0.85rem;
+  border-top: 1px solid var(--border);
+}
+
+/* Sections ------------------------------------------------------------ */
+
+.section {
+  margin-top: 40px;
+}
+
+.section h2 {
+  font-size: 1.3rem;
+  margin-bottom: 18px;
+  letter-spacing: -0.01em;
+}
+
+/* Stat tiles (required analysis results) ------------------------------ */
+
+.tile-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(240px, 1fr));
+  gap: 16px;
+}
+
+.tile {
+  background: var(--surface-1);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  padding: 18px 20px;
+}
+
+.tile-number {
+  display: inline-block;
+  font-size: 0.75rem;
+  font-weight: 700;
+  letter-spacing: 0.04em;
+  color: var(--seq-450);
+  background: var(--seq-100);
+  border-radius: 999px;
+  padding: 2px 10px;
+  margin-bottom: 10px;
+}
+
+.tile-question {
+  margin: 0 0 10px;
+  color: var(--text-secondary);
+  font-size: 0.92rem;
+  min-height: 2.6em;
+}
+
+.tile-answer {
+  margin: 0;
+  font-size: 1.15rem;
+  font-weight: 600;
+  font-variant-numeric: proportional-nums;
+}
+
+/* Cards for the two original questions --------------------------------- */
+
+.card {
+  background: var(--surface-1);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  padding: 22px 24px;
+  margin-bottom: 20px;
+}
+
+.card h3 {
+  margin: 0 0 8px;
+  font-size: 1.05rem;
+}
+
+.card-question {
+  margin: 0 0 18px;
+  color: var(--text-secondary);
+  font-size: 0.92rem;
+}
+
+.trend-badge {
+  display: inline-block;
+  font-size: 0.8rem;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  padding: 4px 12px;
+  border-radius: 999px;
+  margin: -6px 0 18px;
+}
+
+.trend-trending-up {
+  color: var(--status-good);
+  background: color-mix(in srgb, var(--status-good) 14%, transparent);
+}
+
+.trend-trending-down {
+  color: var(--status-critical);
+  background: color-mix(in srgb, var(--status-critical) 14%, transparent);
+}
+
+.trend-no-clear-trend,
+.trend-no-data {
+  color: var(--text-muted);
+  background: var(--gridline);
+}
+
+/* Bar chart (GPA acceptance %, applicants per term) --------------------- */
+
+.bar-chart {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.bar-row {
+  display: grid;
+  grid-template-columns: 110px 1fr 56px auto;
+  align-items: center;
+  gap: 12px;
+}
+
+.bar-label {
+  font-size: 0.85rem;
+  color: var(--text-secondary);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.bar-track {
+  background: var(--gridline);
+  border-radius: 4px;
+  height: 10px;
+  overflow: hidden;
+}
+
+.bar-fill {
+  height: 100%;
+  min-width: 4px;
+  border-radius: 4px;
+  background: var(--seq-450);
+}
+
+.bar-fill-alt {
+  background: var(--seq-300);
+}
+
+.bar-value {
+  font-size: 0.85rem;
+  font-weight: 600;
+  font-variant-numeric: tabular-nums;
+  text-align: right;
+}
+
+.bar-n {
+  font-size: 0.78rem;
+  color: var(--text-muted);
+}
+
+.empty {
+  color: var(--text-muted);
+  font-size: 0.9rem;
+}
+
+/* Responsive ------------------------------------------------------------ */
+
+@media (max-width: 560px) {
+  .bar-row {
+    grid-template-columns: 90px 1fr 44px;
+  }
+  .bar-n {
+    display: none;
+  }
+}
