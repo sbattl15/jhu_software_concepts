@@ -65,7 +65,7 @@ def question_5(session):
     )
     total_fall_2025 = func.count(case((Applicant.term == "Fall 2025", 1)))
 
-    stmt = _percent(accepted_fall_2025, total_fall_2025)
+    stmt = select(_percent(accepted_fall_2025, total_fall_2025))
     return session.execute(stmt).scalar_one()
 
 

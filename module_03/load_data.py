@@ -24,15 +24,6 @@ STATUS_RE = re.compile(
 )
 GPA_RE = re.compile(r"^GPA\s+(?P<value>[\d.]+)$")
 
-# The source JSON (llm_extend_applicant_data.json) has no dedicated GRE
-# fields at all — unlike GPA, there is no "GRE" / "GRE V" / "GRE AW" key.
-# GRE scores show up only occasionally, buried in free-text `comments`
-# (e.g. "GRE 154V/161Q/4.0AW", "Q166 V162 AW4.0", "No GRE submitted"), in
-# no consistent format. Rather than guess at a regex for one-off prose and
-# risk silently mis-assigning a number to the wrong subscore, gre/gre_v/
-# gre_aw are left NULL. parse_score() is kept below (and wired up in
-# to_row) so that if a future export of this data adds real "GRE"/"GRE V"/
-# "GRE AW" keys, the loader picks them up automatically with no changes.
 SCORE_RE = re.compile(r"(?P<value>\d+(?:\.\d+)?)\s*$")
 
 DATE_ADDED_FMT = "%b %d, %Y"  # e.g. "Feb 17, 2026"
@@ -117,13 +108,6 @@ def to_row(rec: dict[str, Any]) -> tuple:
 
 # --------------------------------------------------------------------------
 # Database creation
-#
-# psycopg.connect(dbname=...) only ever connects to an EXISTING database —
-# it can't create one. CREATE DATABASE also can't run inside a transaction
-# block, so this connects to the "postgres" maintenance database with
-# autocommit on, checks pg_database, and creates the target database only
-# if it isn't there yet. The connecting role needs the CREATEDB privilege.
-
 
 def create_database_if_missing(
     dbname: str, user: Optional[str], password: Optional[str], host: str, port: str
@@ -147,15 +131,7 @@ def create_database_if_missing(
 
 # --------------------------------------------------------------------------
 # Schema
-#
-# Matches the required "applicants" table exactly: p_id, program, comments,
-# date_added, url, status, term, us_or_international, gpa, gre, gre_v,
-# gre_aw, degree, llm_generated_program, llm_generated_university.
 
-# Note: gpa has no CHECK range constraint — a small number of source
-# entries report a weighted/non-4.0-scale GPA above 4.0 (up to ~4.9), and
-# a per-row constraint violation would abort the entire executemany()
-# batch insert below rather than just that one row.
 CREATE_TABLE_SQL = """
 CREATE TABLE IF NOT EXISTS applicants (
     p_id                        SERIAL PRIMARY KEY,   -- unique identifier
@@ -181,6 +157,10 @@ CREATE INDEX IF NOT EXISTS idx_applicants_term         ON applicants (term);
 CREATE INDEX IF NOT EXISTS idx_applicants_degree       ON applicants (degree);
 """
 
+MIGRATE_SQL = """
+ALTER TABLE applicants DROP CONSTRAINT IF EXISTS applicants_gpa_check;
+"""
+
 INSERT_SQL = """
 INSERT INTO applicants (
     program, comments, date_added, url, status, term,
@@ -189,7 +169,20 @@ INSERT INTO applicants (
 ) VALUES (
     %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s
 )
-ON CONFLICT (url) DO NOTHING;
+ON CONFLICT (url) DO UPDATE SET
+    program                  = EXCLUDED.program,
+    comments                 = EXCLUDED.comments,
+    date_added               = EXCLUDED.date_added,
+    status                   = EXCLUDED.status,
+    term                     = EXCLUDED.term,
+    us_or_international      = EXCLUDED.us_or_international,
+    gpa                      = EXCLUDED.gpa,
+    gre                      = EXCLUDED.gre,
+    gre_v                    = EXCLUDED.gre_v,
+    gre_aw                   = EXCLUDED.gre_aw,
+    degree                   = EXCLUDED.degree,
+    llm_generated_program    = EXCLUDED.llm_generated_program,
+    llm_generated_university = EXCLUDED.llm_generated_university;
 """
 
 
@@ -239,12 +232,18 @@ def main() -> None:
 
     try:
         with conn.cursor() as cur:
-            # 2. Create table structure
+            # 2. Create table structure (a no-op if it already exists)...
             cur.execute(CREATE_TABLE_SQL)
 
-            # 3. Bulk insert. executemany is plenty fast for ~40k rows;
-            # ON CONFLICT (url) DO NOTHING makes reruns idempotent instead
-            # of failing on the UNIQUE constraint.
+            # ...then bring an already-existing table's schema up to date,
+            # in case it was created by an older version of this script.
+            cur.execute(MIGRATE_SQL)
+
+            # 3. Bulk upsert. executemany is plenty fast for ~40k rows;
+            # ON CONFLICT (url) DO UPDATE makes reruns idempotent (no
+            # UNIQUE-constraint failures on urls already loaded) while
+            # still refreshing every column -- including gre/gre_v/gre_aw
+            # -- for rows that were loaded before the JSON had that data.
             cur.executemany(INSERT_SQL, rows)
 
         conn.commit()
