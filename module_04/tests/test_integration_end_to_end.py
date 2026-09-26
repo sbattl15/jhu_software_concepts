@@ -15,7 +15,7 @@ if str(PROJECT_ROOT) not in sys.path:
     sys.path.insert(0, str(PROJECT_ROOT))
 
 import pull_data
-from models import Applicant, get_session
+from models import Applicant, Base, engine, get_session
 
 # Every test in this module is an "integration" test (end-to-end flows)
 # -- see pytest.ini's markers section and the "no unmarked test" policy.
@@ -131,6 +131,8 @@ def flask_app_module():
     import app as flask_app_module
 
     try:
+        # Create the applicants table if it doesn't exist yet (no-op otherwise).
+        Base.metadata.create_all(engine)
         _delete_test_rows()
     except SQLAlchemyError as exc:
         pytest.skip(

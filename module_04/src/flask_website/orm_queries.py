@@ -245,6 +245,26 @@ def additional_question_2(session):
     return session.execute(stmt).all()
 
 
+# --------------------------------------------------------------------------
+# Simple lookup used by the database tests (tests/test_db_insert.py).
+
+# Every data column on Applicant, i.e. everything except the auto-generated
+# p_id primary key -- derived from the model so it can't drift out of sync.
+APPLICANT_DATA_FIELDS = tuple(
+    column.name for column in Applicant.__table__.columns if column.name != "p_id"
+)
+
+
+def get_applicant_by_url(session, url: str):
+    """Returns the applicant row with this url as a plain dict (keyed by
+    APPLICANT_DATA_FIELDS), or None if no row has that url."""
+    stmt = select(Applicant).where(Applicant.url == url)
+    applicant = session.execute(stmt).scalar_one_or_none()
+    if applicant is None:
+        return None
+    return {field: getattr(applicant, field) for field in APPLICANT_DATA_FIELDS}
+
+
 def main() -> None:
     with get_session() as session:
         count1 = question_1(session)

@@ -8,7 +8,7 @@ Flask app's "Pull Data" button does -- see app.py's ``start_pull_data``).
 
 Steps:
   1. scrape.scrape_data()      -- fetch newly available Grad Cafe entries.
-  2. clean_new.clean_data()    -- regex cleaner: turns each raw entry into
+  2. clean.clean_data()    -- regex cleaner: turns each raw entry into
      a sparse dict of *formatted strings* ("GPA 3.70", "GRE 168",
      "Added on Feb 17, 2026", key "US/International", ...).
   3. _standardize_with_llm()   -- llm_standardize._call_llm() +
@@ -42,7 +42,7 @@ from sqlalchemy.dialects.postgresql import insert as pg_insert
 
 import llm_standardize
 import scrape
-from clean_new import clean_data
+from clean import clean_data
 from models import Applicant, get_session
 
 # How many survey pages an interactive "Pull Data" click fetches. Kept
@@ -53,7 +53,7 @@ from models import Applicant, get_session
 # PULL_DATA_MAX_PAGES env var.
 PULL_DATA_MAX_PAGES = int(os.environ.get("PULL_DATA_MAX_PAGES", "25"))
 
-# clean_new.py's _DEGREE_SUFFIX_RE captures whichever of these literal
+# clean.py's _DEGREE_SUFFIX_RE captures whichever of these literal
 # tokens GradCafe used; llm_standardize._clean_row() passes that token
 # through unchanged as row["degree"]. orm_queries.py/query_data.py filter
 # on the exact strings "PhD" and "Masters" (question_7/8/9), so incoming

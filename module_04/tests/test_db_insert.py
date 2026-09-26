@@ -13,7 +13,7 @@ if str(PROJECT_ROOT) not in sys.path:
 
 import orm_queries as q
 import pull_data
-from models import Applicant, get_session
+from models import Applicant, Base, engine, get_session
 
 # Every test in this module is a "db" test (database schema/inserts/
 # selects) -- see pytest.ini's markers section and the "no unmarked
@@ -42,6 +42,9 @@ def db_session():
     against a real, already-set-up database, so a connection problem is
     reported as "can't run this suite," not as a failing assertion."""
     try:
+        # Create the applicants table if this database doesn't have it yet
+        # (no-op when it already exists), so a fresh database doesn't skip.
+        Base.metadata.create_all(engine)
         with get_session() as setup_session:
             _delete_test_rows(setup_session)
     except SQLAlchemyError as exc:
