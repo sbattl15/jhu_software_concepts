@@ -1,0 +1,163 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>GradCafe Applicant Analysis</title>
+  <link rel="stylesheet" href="{{ url_for('static', filename='style.css') }}">
+</head>
+<body>
+  <header class="page-header">
+    <div class="wrap header-row">
+      <div>
+        <h1>GradCafe Applicant Analysis</h1>
+        <p class="subtitle">
+          Live results from the <code>applicants</code> PostgreSQL table, read through the
+          SQLAlchemy <code>Applicant</code> model.
+        </p>
+        <p class="generated">Generated {{ generated_at }}</p>
+      </div>
+      <div class="header-actions">
+        <form method="post" action="{{ url_for('pull_data') }}">
+          <button type="submit" class="btn btn-primary" {% if pull_status.running %}disabled{% endif %}>
+            Pull Data
+          </button>
+        </form>
+        <form method="get" action="{{ url_for('analysis') }}">
+          <button type="submit" class="btn btn-secondary">Update Analysis</button>
+        </form>
+      </div>
+    </div>
+  </header>
+
+  {% with messages = get_flashed_messages(with_categories=true) %}
+    {% if messages %}
+    <div class="wrap flash-area">
+      {% for category, message in messages %}
+      <p class="flash flash-{{ category }}">{{ message }}</p>
+      {% endfor %}
+    </div>
+    {% endif %}
+  {% endwith %}
+
+  <div class="wrap">
+    <p class="pull-explainer">
+      <strong>Pull Data</strong> checks Grad Cafe for newly submitted application results and adds
+      new records to the database. Depending on the amount of new data available, this may take
+      some time (each new entry is also run through a local LLM to standardize its program and
+      university name) &mdash; feel free to keep using the page while it runs.
+    </p>
+    <p id="pull-status" class="pull-status status-{{ 'running' if pull_status.running else ('ok' if pull_status.success else ('error' if pull_status.success == false else 'idle')) }}"
+       data-poll="{{ 'true' if pull_status.running else 'false' }}">
+      {{ pull_status.message }}
+    </p>
+  </div>
+
+  <main class="wrap">
+
+    <section class="section" aria-labelledby="required-heading">
+      <h2 id="required-heading">Required analysis results</h2>
+      <div class="tile-grid">
+        {% for r in results %}
+        <article class="tile">
+          <span class="tile-number">Q{{ r.number }}</span>
+          <p class="tile-question">{{ r.question }}</p>
+          <p class="tile-answer">{{ r.answer | safe }}</p>
+        </article>
+        {% endfor %}
+      </div>
+    </section>
+
+    <section class="section" aria-labelledby="original-heading">
+      <h2 id="original-heading">Two original questions</h2>
+
+      <div class="card">
+        <h3>Original Question 1 &mdash; Does acceptance rate vary by GPA?</h3>
+        <p class="card-question">
+          What is the acceptance percentage for applicants in each GPA range
+          (0&ndash;0.9, 1&ndash;1.9, 2.0&ndash;2.9, 3.0&ndash;3.9, 4.0&ndash;4.9)?
+        </p>
+        <div class="bar-chart">
+          {% for b in gpa_buckets %}
+          <div class="bar-row" title="{{ b.total }} applicant(s) in this GPA range">
+            <span class="bar-label">GPA {{ b.label }}</span>
+            <div class="bar-track">
+              <div class="bar-fill" style="width: {{ b.pct }}%;"></div>
+            </div>
+            <span class="bar-value">{{ b.pct }}%</span>
+            <span class="bar-n">(n={{ b.total }})</span>
+          </div>
+          {% else %}
+          <p class="empty">No GPA data available.</p>
+          {% endfor %}
+        </div>
+      </div>
+
+      <div class="card">
+        <h3>Original Question 2 &mdash; How has applicant volume changed over time?</h3>
+        <p class="card-question">
+          How many applicants are there each term? Has the number been trending up or down?
+        </p>
+        <p class="trend-badge trend-{{ trend | replace(' ', '-') }}">{{ trend }}</p>
+        <div class="bar-chart">
+          {% for t in term_counts %}
+          <div class="bar-row" title="{{ t.count }} applicant(s) for {{ t.term }}">
+            <span class="bar-label">{{ t.term }}</span>
+            <div class="bar-track">
+              <div class="bar-fill bar-fill-alt" style="width: {{ t.pct_of_max }}%;"></div>
+            </div>
+            <span class="bar-value">{{ t.count }}</span>
+          </div>
+          {% else %}
+          <p class="empty">No term data available.</p>
+          {% endfor %}
+        </div>
+      </div>
+    </section>
+
+  </main>
+
+  <footer class="page-footer">
+    <div class="wrap">
+      <p>Part 8, Part A &mdash; Flask + SQLAlchemy + PostgreSQL analysis page.</p>
+    </div>
+  </footer>
+
+  <script>
+    // Live status polling for the Pull Data banner. Only polls while a
+    // pull is running (server-rendered data-poll flag), so an idle page
+    // never makes background requests. Does NOT trigger a scrape itself --
+    // read-only polling of /pull-data/status.
+    (function () {
+      var statusEl = document.getElementById("pull-status");
+      var pullButton = document.querySelector(".btn-primary");
+      if (!statusEl || statusEl.dataset.poll !== "true") return;
+
+      var statusUrl = "{{ url_for('pull_data_status') }}";
+
+      function poll() {
+        fetch(statusUrl)
+          .then(function (resp) { return resp.json(); })
+          .then(function (data) {
+            statusEl.textContent = data.message;
+            if (data.running) {
+              statusEl.className = "pull-status status-running";
+              if (pullButton) pullButton.disabled = true;
+              setTimeout(poll, 4000);
+            } else {
+              statusEl.className = "pull-status " + (data.success ? "status-ok" : "status-error");
+              if (pullButton) pullButton.disabled = false;
+            }
+          })
+          .catch(function () {
+            // Network hiccup polling status -- try again shortly rather
+            // than leaving the banner stuck.
+            setTimeout(poll, 6000);
+          });
+      }
+
+      setTimeout(poll, 1000);
+    })();
+  </script>
+</body>
+</html>
