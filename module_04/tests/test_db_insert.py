@@ -15,6 +15,11 @@ import orm_queries as q
 import pull_data
 from models import Applicant, get_session
 
+# Every test in this module is a "db" test (database schema/inserts/
+# selects) -- see pytest.ini's markers section and the "no unmarked
+# test" policy.
+pytestmark = pytest.mark.db
+
 # A prefix no real Grad Cafe URL could ever have -- lets this suite find,
 # and only ever touch, the rows it created itself.
 TEST_URL_PREFIX = "https://test.invalid/test-db-insert/"

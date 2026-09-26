@@ -17,6 +17,10 @@ if str(PROJECT_ROOT) not in sys.path:
 import pull_data
 from models import Applicant, get_session
 
+# Every test in this module is an "integration" test (end-to-end flows)
+# -- see pytest.ini's markers section and the "no unmarked test" policy.
+pytestmark = pytest.mark.integration
+
 PULL_DATA_PATH = "/pull-data"
 UPDATE_ANALYSIS_PATH = "/update-analysis"
 ANALYSIS_PATH = "/"

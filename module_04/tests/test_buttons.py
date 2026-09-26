@@ -11,6 +11,11 @@ PROJECT_ROOT = Path(__file__).resolve().parent.parent
 if str(PROJECT_ROOT) not in sys.path:
     sys.path.insert(0, str(PROJECT_ROOT))
 
+# Every test in this module is a "buttons" test (Pull Data / Update
+# Analysis endpoints and busy-state behavior) -- see pytest.ini's markers
+# section and the "no unmarked test" policy.
+pytestmark = pytest.mark.buttons
+
 PULL_DATA_PATH = "/pull-data"
 UPDATE_ANALYSIS_PATH = "/update-analysis"
 STATUS_PATH = "/pull-data/status"

@@ -1,23 +1,3 @@
-"""tests/test_analysis_format.py
-
-Part 3: Analysis Formatting.
-
-    3a. Test labels & rounding
-        i.  Test that your page includes "Answer" labels for rendered
-            analysis.
-        ii. Test that any percentage is formatted with two decimals.
-
-Same hermetic approach as the other test files here: the ORM session
-and every `orm_queries.question_*` / `additional_question_*` function
-are monkeypatched so no live Postgres is required. Deliberately odd
-mock values are used (a plain int with no decimal part, a value with
-only one decimal, an int-valued acceptance rate, a term split that
-divides unevenly) specifically to catch formatting that only happens
-to look right for "nice" numbers -- ".00"/".0"/"" all collapse to a
-correctly-rounded number, but only "%.2f"-style formatting produces
-".00" (rather than "" or ".0") every time.
-"""
-
 from __future__ import annotations
 
 import re
@@ -29,6 +9,11 @@ import pytest
 PROJECT_ROOT = Path(__file__).resolve().parent.parent
 if str(PROJECT_ROOT) not in sys.path:
     sys.path.insert(0, str(PROJECT_ROOT))
+
+# Every test in this module is an "analysis" test (labels and percentage
+# formatting) -- see pytest.ini's markers section and the "no unmarked
+# test" policy.
+pytestmark = pytest.mark.analysis
 
 # Matches any "<digits>.<digits>%" in the rendered page -- deliberately not
 # scoped to a particular CSS class, so it also catches a percentage this
