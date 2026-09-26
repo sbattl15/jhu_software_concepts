@@ -7,14 +7,12 @@ import threading
 from datetime import datetime
 from pathlib import Path
 
-from flask import Flask, flash, get_flashed_messages, jsonify, redirect, render_template, url_for
+from flask import Flask, jsonify, render_template
 
 import orm_queries as q
 from models import get_session
 
 app = Flask(__name__)
-# Needed for flash() -- only used for one-shot status messages after the
-# Pull Data button redirects back to "/", never for anything sensitive.
 app.secret_key = os.environ.get("FLASK_SECRET_KEY", "dev-secret-change-me")
 
 BASE_DIR = Path(__file__).resolve().parent
@@ -22,10 +20,6 @@ PULL_DATA_SCRIPT = BASE_DIR / "pull_data.py"
 
 # --------------------------------------------------------------------------
 # Part 9: Pull Data -- background subprocess + status tracking
-#
-# A single in-memory lock/state dict is enough for the one dev-server
-# process this assignment runs. It would need to move to something shared
-# (e.g. a row in Postgres) to work across multiple worker processes.
 # --------------------------------------------------------------------------
 
 _pull_lock = threading.Lock()
@@ -51,6 +45,27 @@ def _pull_status_snapshot() -> dict:
             "success": _pull_state["success"],
             "message": _pull_state["message"],
         }
+
+
+def _pull_is_running() -> bool:
+    """Cheap busy check that /pull-data and /update-analysis gate on, so
+    a click can't start a second concurrent pull and an analysis refresh
+    can't race a pull that's mid-write."""
+    with _pull_lock:
+        return _pull_state["running"]
+
+
+def _fmt_pct(value) -> str:
+    """Formats a percentage with exactly two decimal places, regardless of
+    whether the DB driver handed back a Decimal, a float, or an int (and
+    regardless of how many/few decimal places that value happened to
+    carry) -- so the page never shows "42%" or "42.5%", only "42.00%".
+    A None (e.g. a percentage of zero rows -- NULLIF-guarded division by
+    zero -- comes back NULL/None from Postgres) renders as "0.00" rather
+    than raising."""
+    if value is None:
+        return "0.00"
+    return f"{float(value):.2f}"
 
 
 def _watch_pull_process(proc: subprocess.Popen) -> None:
@@ -161,7 +176,7 @@ def _build_analysis_context() -> dict:
                     "Among entries that provide a nationality classification, "
                     "what percentage are international students?"
                 ),
-                "answer": f"{q.question_2(session)}%",
+                "answer": f"{_fmt_pct(q.question_2(session))}%",
             },
         ]
 
@@ -191,7 +206,7 @@ def _build_analysis_context() -> dict:
             {
                 "number": 5,
                 "question": "What percentage of Fall 2025 entries are acceptances?",
-                "answer": f"{q.question_5(session)}%",
+                "answer": f"{_fmt_pct(q.question_5(session))}%",
             }
         )
         results.append(
@@ -244,7 +259,7 @@ def _build_analysis_context() -> dict:
             {
                 "label": label,
                 "total": total_in_bucket,
-                "pct": float(acceptance_pct) if acceptance_pct is not None else 0.0,
+                "pct": _fmt_pct(acceptance_pct),
             }
             for label, total_in_bucket, acceptance_pct in gpa_bucket_rows
         ]
@@ -254,7 +269,9 @@ def _build_analysis_context() -> dict:
         term_counts = [{"term": term, "count": count} for term, count in term_count_rows]
         max_term_count = max((row["count"] for row in term_counts), default=0)
         for row in term_counts:
-            row["pct_of_max"] = (row["count"] / max_term_count * 100) if max_term_count else 0
+            row["pct_of_max"] = (
+                _fmt_pct(row["count"] / max_term_count * 100) if max_term_count else "0.00"
+            )
 
         trend = "no data"
         if len(term_count_rows) >= 2:
@@ -289,9 +306,16 @@ def analysis() -> str:
 
 @app.route("/pull-data", methods=["POST"])
 def pull_data():
+    if _pull_is_running():
+        return jsonify({"error": "A data pull is already in progress."}), 409
+
     started, message = start_pull_data()
-    flash(message, "success" if started else "warning")
-    return redirect(url_for("analysis"))
+    if not started:
+        # Lost a race with another request between the check above and
+        # start_pull_data()'s own lock -- still busy, so still a 409.
+        return jsonify({"error": message}), 409
+
+    return jsonify({"started": True, "message": message}), 200
 
 
 @app.route("/pull-data/status")
@@ -302,12 +326,21 @@ def pull_data_status():
 # --------------------------------------------------------------------------
 # Part 10: Update Analysis
 #
-# No dedicated write logic needed: "/" already re-queries Postgres on
-# every request and always reports live Pull Data status, so re-loading it
-# *is* "re-query and display the most current results" -- and since it
-# only ever reads, it can never interfere with (or start) a scrape. The
-# Update Analysis button below simply GETs "/".
+# "/" already re-queries Postgres on every request, so refreshing the
+# results on demand is just running _build_analysis_context() again.
+# Gated on the same busy flag as Pull Data: while a pull is writing new
+# rows, an update is refused outright (409, no query is run) rather than
+# racing it.
 # --------------------------------------------------------------------------
+
+
+@app.route("/update-analysis", methods=["POST"])
+def update_analysis():
+    if _pull_is_running():
+        return jsonify({"error": "A data pull is in progress; try again once it finishes."}), 409
+
+    context = _build_analysis_context()
+    return jsonify({"updated": True, "generated_at": context["generated_at"]}), 200
 
 
 if __name__ == "__main__":

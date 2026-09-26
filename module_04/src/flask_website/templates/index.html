@@ -18,27 +18,13 @@
         <p class="generated">Generated {{ generated_at }}</p>
       </div>
       <div class="header-actions">
-        <form method="post" action="{{ url_for('pull_data') }}">
-          <button type="submit" class="btn btn-primary" {% if pull_status.running %}disabled{% endif %}>
-            Pull Data
-          </button>
-        </form>
-        <form method="get" action="{{ url_for('analysis') }}">
-          <button type="submit" class="btn btn-secondary">Update Analysis</button>
-        </form>
+        <button type="button" id="pull-data-btn" class="btn btn-primary" {% if pull_status.running %}disabled{% endif %}>
+          Pull Data
+        </button>
+        <button type="button" id="update-analysis-btn" class="btn btn-secondary">Update Analysis</button>
       </div>
     </div>
   </header>
-
-  {% with messages = get_flashed_messages(with_categories=true) %}
-    {% if messages %}
-    <div class="wrap flash-area">
-      {% for category, message in messages %}
-      <p class="flash flash-{{ category }}">{{ message }}</p>
-      {% endfor %}
-    </div>
-    {% endif %}
-  {% endwith %}
 
   <div class="wrap">
     <p class="pull-explainer">
@@ -62,7 +48,7 @@
         <article class="tile">
           <span class="tile-number">Q{{ r.number }}</span>
           <p class="tile-question">{{ r.question }}</p>
-          <p class="tile-answer">{{ r.answer | safe }}</p>
+          <p class="tile-answer"><strong>Answer:</strong> {{ r.answer | safe }}</p>
         </article>
         {% endfor %}
       </div>
@@ -124,17 +110,19 @@
   </footer>
 
   <script>
-    // Live status polling for the Pull Data banner. Only polls while a
-    // pull is running (server-rendered data-poll flag), so an idle page
-    // never makes background requests. Does NOT trigger a scrape itself --
-    // read-only polling of /pull-data/status.
     (function () {
       var statusEl = document.getElementById("pull-status");
-      var pullButton = document.querySelector(".btn-primary");
-      if (!statusEl || statusEl.dataset.poll !== "true") return;
+      var pullButton = document.getElementById("pull-data-btn");
+      var updateButton = document.getElementById("update-analysis-btn");
 
       var statusUrl = "{{ url_for('pull_data_status') }}";
+      var pullDataUrl = "{{ url_for('pull_data') }}";
+      var updateAnalysisUrl = "{{ url_for('update_analysis') }}";
 
+      // Live status polling for the Pull Data banner. Only polls while a
+      // pull is running (server-rendered data-poll flag on first load, or
+      // kicked off right after a successful Pull Data click below) --
+      // read-only polling of /pull-data/status, never triggers a scrape.
       function poll() {
         fetch(statusUrl)
           .then(function (resp) { return resp.json(); })
@@ -156,7 +144,62 @@
           });
       }
 
-      setTimeout(poll, 1000);
+      if (statusEl && statusEl.dataset.poll === "true") {
+        setTimeout(poll, 1000);
+      }
+
+      // "Pull Data" -- POST /pull-data. 200 means a pull was actually
+      // started, so switch straight into the running/polling state; 409
+      // means one was already in progress (nothing new was started), so
+      // just surface that in the status line.
+      if (pullButton) {
+        pullButton.addEventListener("click", function () {
+          pullButton.disabled = true;
+          fetch(pullDataUrl, { method: "POST" })
+            .then(function (resp) {
+              return resp.json().then(function (data) {
+                return { ok: resp.ok, data: data };
+              });
+            })
+            .then(function (result) {
+              if (statusEl) {
+                statusEl.textContent = result.data.message || result.data.error;
+                statusEl.className = "pull-status " + (result.ok ? "status-running" : "status-error");
+              }
+              if (result.ok) {
+                setTimeout(poll, 1000);
+              } else {
+                pullButton.disabled = false;
+              }
+            })
+            .catch(function () {
+              pullButton.disabled = false;
+            });
+        });
+      }
+
+      // "Update Analysis" -- POST /update-analysis. 200 means the
+      // analysis was re-queried, so reload to show the fresh results; 409
+      // means a pull is in progress and no update was performed, so just
+      // tell the user rather than reloading to stale-but-unchanged data.
+      if (updateButton) {
+        updateButton.addEventListener("click", function () {
+          updateButton.disabled = true;
+          fetch(updateAnalysisUrl, { method: "POST" })
+            .then(function (resp) {
+              if (resp.ok) {
+                location.reload();
+                return;
+              }
+              return resp.json().then(function (data) {
+                alert(data.error || "Could not update analysis right now.");
+              });
+            })
+            .finally(function () {
+              updateButton.disabled = false;
+            });
+        });
+      }
     })();
   </script>
 </body>

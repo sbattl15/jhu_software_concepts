@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from sqlalchemy import Numeric, and_, case, cast, func, or_, select
+from sqlalchemy import Integer, Numeric, and_, case, cast, func, or_, select
 
 from models import Applicant, get_session
 
@@ -17,6 +17,8 @@ MIT_FULL_PATTERN = "%massachusetts institute of technology%"
 MIT_ABBREV_REGEX = r"\mmit\M"
 CMU_FULL_PATTERN = "%carnegie mellon%"
 CMU_ABBREV_REGEX = r"\mcmu\M"
+JHU_FULL_PATTERN = "%hopkins%"
+JHU_ABBREV_PATTERN = "%jhu%"
 
 
 # --------------------------------------------------------------------------
@@ -38,6 +40,39 @@ def question_1(session) -> int:
         .where(Applicant.term == TARGET_TERM)
     )
     return session.execute(stmt).scalar_one()
+
+
+def question_2(session):
+    """Among entries that provide a nationality classification, what
+    percentage are international students?"""
+    international_count = func.count(
+        case((Applicant.us_or_international == "International", 1))
+    )
+    classified_count = func.count(
+        case(
+            (
+                and_(
+                    Applicant.us_or_international.is_not(None),
+                    func.btrim(Applicant.us_or_international) != "",
+                ),
+                1,
+            )
+        )
+    )
+    stmt = select(_percent(international_count, classified_count))
+    return session.execute(stmt).scalar_one()
+
+
+def question_3(session):
+    """What are the average GPA, GRE Quantitative, GRE Verbal, and GRE
+    Analytical Writing scores of applicants who provide each metric?"""
+    stmt = select(
+        _round2(func.avg(Applicant.gpa)).label("avg_gpa"),
+        _round2(func.avg(Applicant.gre)).label("avg_gre_q"),
+        _round2(func.avg(Applicant.gre_v)).label("avg_gre_v"),
+        _round2(func.avg(Applicant.gre_aw)).label("avg_gre_aw"),
+    )
+    return session.execute(stmt).one()
 
 
 def question_4(session):
@@ -66,6 +101,39 @@ def question_5(session):
     total_fall_2025 = func.count(case((Applicant.term == "Fall 2025", 1)))
 
     stmt = select(_percent(accepted_fall_2025, total_fall_2025))
+    return session.execute(stmt).scalar_one()
+
+
+def question_6(session):
+    """What is the average GPA of accepted applicants who applied for
+    Fall 2025?"""
+    stmt = select(_round2(func.avg(Applicant.gpa))).where(
+        and_(
+            Applicant.term == "Fall 2025",
+            Applicant.status.like(ACCEPTED_PATTERN),
+            Applicant.gpa.is_not(None),
+        )
+    )
+    return session.execute(stmt).scalar_one()
+
+
+def question_7(session) -> int:
+    """How many entries are from applicants who applied to Johns Hopkins
+    University for a master's degree in Computer Science?"""
+    stmt = (
+        select(func.count())
+        .select_from(Applicant)
+        .where(
+            and_(
+                Applicant.degree == "Masters",
+                Applicant.program.ilike(CS_PATTERN),
+                or_(
+                    Applicant.program.ilike(JHU_FULL_PATTERN),
+                    Applicant.program.ilike(JHU_ABBREV_PATTERN),
+                ),
+            )
+        )
+    )
     return session.execute(stmt).scalar_one()
 
 
@@ -154,23 +222,88 @@ def additional_question_1(session):
     return session.execute(stmt).all()
 
 
+def additional_question_2(session):
+    """How many applicants are there each term? Returns a list of
+    (term, applicant_count) rows, ordered chronologically (year, then
+    Spring/Summer/Fall/Winter within a year), the same order
+    query_data.py's raw-SQL version produces."""
+    year_expr = cast(func.substring(Applicant.term, r"\d{4}"), Integer)
+    season_rank = case(
+        (Applicant.term.like("%Spring%"), 0),
+        (Applicant.term.like("%Summer%"), 1),
+        (Applicant.term.like("%Fall%"), 2),
+        (Applicant.term.like("%Winter%"), 3),
+        else_=4,
+    )
+
+    stmt = (
+        select(Applicant.term, func.count().label("applicant_count"))
+        .where(Applicant.term.is_not(None))
+        .group_by(Applicant.term)
+        .order_by(year_expr, season_rank)
+    )
+    return session.execute(stmt).all()
+
+
+# --------------------------------------------------------------------------
+# Part 4 (M3): simple query function -- one applicant, as a plain dict.
+#
+# Every field Grad Cafe data is stored under, i.e. everything on the
+# Applicant model except the internal auto-generated p_id primary key.
+APPLICANT_DATA_FIELDS = tuple(
+    column.name for column in Applicant.__table__.columns if column.name != "p_id"
+)
+
+
+def get_applicant_by_url(session, url: str) -> dict | None:
+    """Looks up one applicant by its natural key (the Grad Cafe entry's
+    url, which is unique) and returns it as a plain dict keyed by
+    APPLICANT_DATA_FIELDS, or None if no row has that url."""
+    applicant = session.execute(
+        select(Applicant).where(Applicant.url == url)
+    ).scalar_one_or_none()
+    if applicant is None:
+        return None
+    return {field: getattr(applicant, field) for field in APPLICANT_DATA_FIELDS}
+
+
 def main() -> None:
     with get_session() as session:
         count1 = question_1(session)
+        percent_international = question_2(session)
+        avg_gpa, avg_gre_q, avg_gre_v, avg_gre_aw = question_3(session)
         avg_gpa_american_fall2026 = question_4(session)
         fall_2025_acceptance_pct = question_5(session)
+        avg_gpa_accepted_fall2025 = question_6(session)
+        jhu_ms_cs_count = question_7(session)
         original_field_count = question_8(session)
         llm_field_count = question_9(session)
         gpa_bucket_rows = additional_question_1(session)
+        term_count_rows = additional_question_2(session)
 
     print("Question 1: How many entries are from applicants who applied for Fall 2026?")
     print(f"Fall 2026 applicant count: {count1}")
+
+    print("Question 2: Among entries that provide a nationality classification, what percentage are international students?")
+    print(f"Percent international: {percent_international}%")
+
+    print("Question 3: What are the average GPA, GRE Quantitative, GRE Verbal, and GRE Analytical Writing scores of applicants who provide each metric?")
+    print(f"Average GPA: {avg_gpa}")
+    print(f"Average GRE Quantitative: {avg_gre_q}")
+    print(f"Average GRE Verbal: {avg_gre_v}")
+    print(f"Average GRE Analytical Writing: {avg_gre_aw}")
 
     print("Question 4: What is the average GPA of American applicants who applied for Fall 2026?")
     print(f"Average GPA (American, Fall 2026): {avg_gpa_american_fall2026}")
 
     print("Question 5: What percentage of Fall 2025 entries are acceptances?")
     print(f"Fall 2025 acceptance percentage: {fall_2025_acceptance_pct}%")
+
+    print("Question 6: What is the average GPA of accepted applicants who applied for Fall 2025?")
+    print(f"Average GPA (accepted, Fall 2025): {avg_gpa_accepted_fall2025}")
+
+    print("Question 7: How many entries are from applicants who applied to Johns Hopkins University for a master's degree in Computer Science?")
+    print(f"Johns Hopkins Masters Computer Science count: {jhu_ms_cs_count}")
 
     print(
         "Question 8: How many Fall 2026 entries are acceptances from applicants applying "
@@ -191,6 +324,19 @@ def main() -> None:
     )
     for label, total_in_bucket, acceptance_pct in gpa_bucket_rows:
         print(f"GPA {label}: {acceptance_pct}% (n={total_in_bucket})")
+
+    print("Additional Question 2: How many applicants are there each term? Has the number been trending up or down?")
+    for term, applicant_count in term_count_rows:
+        print(f"{term}: {applicant_count}")
+    if len(term_count_rows) >= 2:
+        first_count = term_count_rows[0][1]
+        last_count = term_count_rows[-1][1]
+        if first_count < last_count:
+            print("Trending up")
+        elif first_count > last_count:
+            print("Trending down")
+        else:
+            print("No trend")
 
 
 if __name__ == "__main__":
