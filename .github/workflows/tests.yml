@@ -53,20 +53,17 @@ jobs:
           elif [ -f requirements.txt ]; then
             pip install -r requirements.txt
           fi
-          pip install pytest pytest-cov
+          pip install pytest pytest-cov "psycopg[binary]"
 
       - name: Wait for PostgreSQL
         run: |
           sudo apt-get update && sudo apt-get install -y postgresql-client
           until pg_isready -h localhost -p 5432 -U postgres; do sleep 1; done
 
-      # Step 4: create and load tables before tests run
       - name: Initialize database (load_data.py)
-        working-directory: module_04/src
-        run: python load_data.py
+        working-directory: module_04
+        run: python src/load_data.py
 
-      # Step 3: run the full suite with coverage, wherever pytest.ini lives.
-      # Always runs from the repo root so --cov=module_04/src resolves correctly.
       - name: Run full pytest suite with coverage
         run: |
           MARKS="web or buttons or analysis or db or integration"
