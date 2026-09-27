@@ -47,6 +47,7 @@
 <li class="toctree-l1"><a class="reference internal" href="../overview.html">Overview &amp; Setup</a></li>
 <li class="toctree-l1"><a class="reference internal" href="../architecture.html">Architecture</a></li>
 <li class="toctree-l1"><a class="reference internal" href="../testing.html">Testing Guide</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../operational.html">Operational Notes</a></li>
 </ul>
 <p class="caption" role="heading"><span class="caption-text">API Reference</span></p>
 <ul class="current">
@@ -57,6 +58,10 @@
 <li class="toctree-l2"><a class="reference internal" href="query_data.html">query_data – SQL Analysis</a></li>
 <li class="toctree-l2 current"><a class="current reference internal" href="#">app – Flask Application &amp; Routes</a><ul>
 <li class="toctree-l3"><a class="reference internal" href="#routes">Routes</a></li>
+<li class="toctree-l3"><a class="reference internal" href="#application-factory">Application factory</a><ul>
+<li class="toctree-l4"><a class="reference internal" href="#app.create_app"><code class="docutils literal notranslate"><span class="pre">create_app()</span></code></a></li>
+</ul>
+</li>
 <li class="toctree-l3"><a class="reference internal" href="#http-routes">HTTP routes</a><ul>
 <li class="toctree-l4"><a class="reference internal" href="#app.analysis"><code class="docutils literal notranslate"><span class="pre">analysis()</span></code></a></li>
 <li class="toctree-l4"><a class="reference internal" href="#app.pull_data"><code class="docutils literal notranslate"><span class="pre">pull_data()</span></code></a></li>
@@ -66,6 +71,7 @@
 </li>
 <li class="toctree-l3"><a class="reference internal" href="#pull-data-control">Pull Data control</a><ul>
 <li class="toctree-l4"><a class="reference internal" href="#app.start_pull_data"><code class="docutils literal notranslate"><span class="pre">start_pull_data()</span></code></a></li>
+<li class="toctree-l4"><a class="reference internal" href="#app.wait_for_pull"><code class="docutils literal notranslate"><span class="pre">wait_for_pull()</span></code></a></li>
 <li class="toctree-l4"><a class="reference internal" href="#app._watch_pull_process"><code class="docutils literal notranslate"><span class="pre">_watch_pull_process()</span></code></a></li>
 <li class="toctree-l4"><a class="reference internal" href="#app._pull_is_running"><code class="docutils literal notranslate"><span class="pre">_pull_is_running()</span></code></a></li>
 <li class="toctree-l4"><a class="reference internal" href="#app._pull_status_snapshot"><code class="docutils literal notranslate"><span class="pre">_pull_status_snapshot()</span></code></a></li>
@@ -115,7 +121,9 @@
 <p id="module-app">Flask web application for the GradCafe analysis dashboard.</p>
 <p>This module is the <strong>web layer</strong>. It renders the analysis page (answers to
 the assignment questions, queried live from PostgreSQL via
-<code class="docutils literal notranslate"><span class="pre">orm_queries</span></code>), and exposes two buttons backed by JSON endpoints:</p>
+<code class="docutils literal notranslate"><span class="pre">orm_queries</span></code>), and exposes two buttons backed by JSON endpoints.
+The app is built by the <a class="reference internal" href="#app.create_app" title="app.create_app"><code class="xref py py-func docutils literal notranslate"><span class="pre">create_app()</span></code></a> factory; the module-level
+<a class="reference internal" href="#module-app" title="app"><code class="xref py py-data docutils literal notranslate"><span class="pre">app</span></code></a> is <code class="docutils literal notranslate"><span class="pre">create_app()</span></code> with the default configuration.</p>
 <ul class="simple">
 <li><p><strong>Pull Data</strong> – <code class="docutils literal notranslate"><span class="pre">POST</span> <span class="pre">/pull-data</span></code> launches <code class="docutils literal notranslate"><span class="pre">pull_data.py</span></code> (scrape -&gt;
 clean -&gt; load) in a background subprocess; <code class="docutils literal notranslate"><span class="pre">GET</span> <span class="pre">/pull-data/status</span></code>
@@ -133,7 +141,7 @@ It is refused with HTTP 409 while a pull is running.</p></li>
 </tr>
 </thead>
 <tbody>
-<tr class="row-even"><td><p><code class="docutils literal notranslate"><span class="pre">/</span></code></p></td>
+<tr class="row-even"><td><p><code class="docutils literal notranslate"><span class="pre">/</span></code> and <code class="docutils literal notranslate"><span class="pre">/analysis</span></code></p></td>
 <td><p>GET</p></td>
 <td><p>Render <code class="docutils literal notranslate"><span class="pre">index.html</span></code> with fresh results.</p></td>
 </tr>
@@ -151,15 +159,42 @@ It is refused with HTTP 409 while a pull is running.</p></li>
 </tr>
 </tbody>
 </table>
-<p>Environment variables: <code class="docutils literal notranslate"><span class="pre">FLASK_SECRET_KEY</span></code> plus whatever <code class="docutils literal notranslate"><span class="pre">models</span></code>
-uses to connect to the database (e.g. <code class="docutils literal notranslate"><span class="pre">DATABASE_URL</span></code>).</p>
+<p>Environment variables: <code class="docutils literal notranslate"><span class="pre">DATABASE_URL</span></code> (PostgreSQL connection, read by
+<code class="docutils literal notranslate"><span class="pre">models</span></code>) and <code class="docutils literal notranslate"><span class="pre">FLASK_SECRET_KEY</span></code>.</p>
+</section>
+<section id="application-factory">
+<h2>Application factory<a class="headerlink" href="#application-factory" title="Link to this heading"></a></h2>
+<dl class="py function">
+<dt class="sig sig-object py" id="app.create_app">
+<span class="sig-prename descclassname"><span class="pre">app.</span></span><span class="sig-name descname"><span class="pre">create_app</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">config</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">None</span></span></em><span class="sig-paren">)</span><a class="reference internal" href="../_modules/app.html#create_app"><span class="viewcode-link"><span class="pre">[source]</span></span></a><a class="headerlink" href="#app.create_app" title="Link to this definition"></a></dt>
+<dd><p>Build and configure the Flask application.</p>
+<dl class="field-list simple">
+<dt class="field-odd">Parameters<span class="colon">:</span></dt>
+<dd class="field-odd"><p><strong>config</strong> (<em>dict</em><em> | </em><em>None</em>) – Optional settings merged into <code class="docutils literal notranslate"><span class="pre">app.config</span></code>. Pass
+<code class="docutils literal notranslate"><span class="pre">{&quot;DATABASE_URL&quot;:</span> <span class="pre">&quot;postgresql://...&quot;}</span></code> to use a different
+database (e.g. in tests), or <code class="docutils literal notranslate"><span class="pre">{&quot;TESTING&quot;:</span> <span class="pre">True}</span></code>.</p>
+</dd>
+<dt class="field-even">Returns<span class="colon">:</span></dt>
+<dd class="field-even"><p>A Flask app with every route registered.</p>
+</dd>
+<dt class="field-odd">Return type<span class="colon">:</span></dt>
+<dd class="field-odd"><p>flask.Flask</p>
+</dd>
+</dl>
+<p>Example:</p>
+<div class="highlight-default notranslate"><div class="highlight"><pre><span></span><span class="n">app</span> <span class="o">=</span> <span class="n">create_app</span><span class="p">({</span><span class="s2">&quot;TESTING&quot;</span><span class="p">:</span> <span class="kc">True</span><span class="p">})</span>
+<span class="n">client</span> <span class="o">=</span> <span class="n">app</span><span class="o">.</span><span class="n">test_client</span><span class="p">()</span>
+</pre></div>
+</div>
+</dd></dl>
+
 </section>
 <section id="http-routes">
 <h2>HTTP routes<a class="headerlink" href="#http-routes" title="Link to this heading"></a></h2>
 <dl class="py function">
 <dt class="sig sig-object py" id="app.analysis">
 <span class="sig-prename descclassname"><span class="pre">app.</span></span><span class="sig-name descname"><span class="pre">analysis</span></span><span class="sig-paren">(</span><span class="sig-paren">)</span><a class="reference internal" href="../_modules/app.html#analysis"><span class="viewcode-link"><span class="pre">[source]</span></span></a><a class="headerlink" href="#app.analysis" title="Link to this definition"></a></dt>
-<dd><p><code class="docutils literal notranslate"><span class="pre">GET</span> <span class="pre">/</span></code> – render the analysis page.</p>
+<dd><p><code class="docutils literal notranslate"><span class="pre">GET</span> <span class="pre">/</span></code> and <code class="docutils literal notranslate"><span class="pre">GET</span> <span class="pre">/analysis</span></code> – render the analysis page.</p>
 <dl class="field-list simple">
 <dt class="field-odd">Returns<span class="colon">:</span></dt>
 <dd class="field-odd"><p>Rendered <code class="docutils literal notranslate"><span class="pre">index.html</span></code> with fresh query results and the
@@ -177,8 +212,10 @@ current pull status.</p>
 <dd><p><code class="docutils literal notranslate"><span class="pre">POST</span> <span class="pre">/pull-data</span></code> – start a background data pull.</p>
 <dl class="field-list simple">
 <dt class="field-odd">Returns<span class="colon">:</span></dt>
-<dd class="field-odd"><p><code class="docutils literal notranslate"><span class="pre">200</span></code> with <code class="docutils literal notranslate"><span class="pre">{&quot;started&quot;:</span> <span class="pre">true,</span> <span class="pre">&quot;message&quot;:</span> <span class="pre">...}</span></code>, or
-<code class="docutils literal notranslate"><span class="pre">409</span></code> with <code class="docutils literal notranslate"><span class="pre">{&quot;error&quot;:</span> <span class="pre">...}</span></code> if a pull is already running.</p>
+<dd class="field-odd"><p><code class="docutils literal notranslate"><span class="pre">200</span></code> with <code class="docutils literal notranslate"><span class="pre">{&quot;ok&quot;:</span> <span class="pre">true,</span> <span class="pre">&quot;started&quot;:</span> <span class="pre">true,</span> <span class="pre">&quot;message&quot;:</span> <span class="pre">...}</span></code>;
+<code class="docutils literal notranslate"><span class="pre">409</span></code> with <code class="docutils literal notranslate"><span class="pre">{&quot;ok&quot;:</span> <span class="pre">false,</span> <span class="pre">&quot;busy&quot;:</span> <span class="pre">true,</span> <span class="pre">&quot;error&quot;:</span> <span class="pre">...}</span></code> if a pull
+is already running; or <code class="docutils literal notranslate"><span class="pre">500</span></code> with <code class="docutils literal notranslate"><span class="pre">{&quot;ok&quot;:</span> <span class="pre">false,</span> <span class="pre">&quot;error&quot;:</span> <span class="pre">...}</span></code>
+if the pull process could not be started (nothing is written).</p>
 </dd>
 <dt class="field-even">Return type<span class="colon">:</span></dt>
 <dd class="field-even"><p>tuple[flask.Response, int]</p>
@@ -206,9 +243,9 @@ current pull status.</p>
 <dd><p><code class="docutils literal notranslate"><span class="pre">POST</span> <span class="pre">/update-analysis</span></code> – re-run the analysis queries.</p>
 <dl class="field-list simple">
 <dt class="field-odd">Returns<span class="colon">:</span></dt>
-<dd class="field-odd"><p><code class="docutils literal notranslate"><span class="pre">200</span></code> with <code class="docutils literal notranslate"><span class="pre">{&quot;updated&quot;:</span> <span class="pre">true,</span> <span class="pre">&quot;generated_at&quot;:</span> <span class="pre">...}</span></code>, or
-<code class="docutils literal notranslate"><span class="pre">409</span></code> with <code class="docutils literal notranslate"><span class="pre">{&quot;error&quot;:</span> <span class="pre">...}</span></code> while a pull is running (no query
-is executed in that case).</p>
+<dd class="field-odd"><p><code class="docutils literal notranslate"><span class="pre">200</span></code> with <code class="docutils literal notranslate"><span class="pre">{&quot;ok&quot;:</span> <span class="pre">true,</span> <span class="pre">&quot;updated&quot;:</span> <span class="pre">true,</span> <span class="pre">&quot;generated_at&quot;:</span> <span class="pre">...}</span></code>,
+or <code class="docutils literal notranslate"><span class="pre">409</span></code> with <code class="docutils literal notranslate"><span class="pre">{&quot;ok&quot;:</span> <span class="pre">false,</span> <span class="pre">&quot;busy&quot;:</span> <span class="pre">true,</span> <span class="pre">&quot;error&quot;:</span> <span class="pre">...}</span></code> while a
+pull is running (no query is executed in that case).</p>
 </dd>
 <dt class="field-even">Return type<span class="colon">:</span></dt>
 <dd class="field-even"><p>tuple[flask.Response, int]</p>
@@ -231,6 +268,25 @@ was already running or the process could not be launched.</p>
 </dd>
 <dt class="field-even">Return type<span class="colon">:</span></dt>
 <dd class="field-even"><p>tuple[bool, str]</p>
+</dd>
+</dl>
+</dd></dl>
+
+<dl class="py function">
+<dt class="sig sig-object py" id="app.wait_for_pull">
+<span class="sig-prename descclassname"><span class="pre">app.</span></span><span class="sig-name descname"><span class="pre">wait_for_pull</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">timeout</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">None</span></span></em><span class="sig-paren">)</span><a class="reference internal" href="../_modules/app.html#wait_for_pull"><span class="viewcode-link"><span class="pre">[source]</span></span></a><a class="headerlink" href="#app.wait_for_pull" title="Link to this definition"></a></dt>
+<dd><p>Block until the most recent pull’s watcher thread has finished.</p>
+<p>Lets tests (and scripts) wait for a pull deterministically instead of
+polling with <code class="docutils literal notranslate"><span class="pre">sleep()</span></code>.</p>
+<dl class="field-list simple">
+<dt class="field-odd">Parameters<span class="colon">:</span></dt>
+<dd class="field-odd"><p><strong>timeout</strong> (<em>float</em><em> | </em><em>None</em>) – Maximum seconds to wait, or <code class="docutils literal notranslate"><span class="pre">None</span></code> to wait forever.</p>
+</dd>
+<dt class="field-even">Returns<span class="colon">:</span></dt>
+<dd class="field-even"><p><code class="docutils literal notranslate"><span class="pre">True</span></code> if no pull is running afterwards.</p>
+</dd>
+<dt class="field-odd">Return type<span class="colon">:</span></dt>
+<dd class="field-odd"><p>bool</p>
 </dd>
 </dl>
 </dd></dl>

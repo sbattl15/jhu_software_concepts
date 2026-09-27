@@ -58,6 +58,7 @@
 </li>
 <li class="toctree-l1"><a class="reference internal" href="architecture.html">Architecture</a></li>
 <li class="toctree-l1"><a class="reference internal" href="testing.html">Testing Guide</a></li>
+<li class="toctree-l1"><a class="reference internal" href="operational.html">Operational Notes</a></li>
 </ul>
 <p class="caption" role="heading"><span class="caption-text">API Reference</span></p>
 <ul>
@@ -112,12 +113,12 @@ dashboard that can also pull new data and refresh its results.</p></li>
 │   ├── load_data.py          one-time bulk load of the JSON into Postgres
 │   ├── query_data.py         raw-SQL answers printed to the console
 │   └── flask_website/
-│       ├── app.py            Flask app and routes
+│       ├── app.py            Flask app: create_app() factory and routes
 │       ├── scrape.py         GradCafe scraper
 │       ├── clean.py          regex cleaner
 │       ├── llm_standardize.py  local-LLM program/university standardizer
 │       ├── pull_data.py      scrape → clean → LLM → load (Pull Data button)
-│       ├── models.py         SQLAlchemy Applicant model + session
+│       ├── models.py         SQLAlchemy Applicant model; reads DATABASE_URL
 │       ├── orm_queries.py    analysis queries via SQLAlchemy
 │       └── templates/index.html
 ├── tests/                    pytest suite
@@ -132,12 +133,13 @@ dashboard that can also pull new data and refresh its results.</p></li>
 <li><p>Python 3.10+</p></li>
 <li><p>PostgreSQL 14+</p></li>
 <li><p>The packages in <code class="docutils literal notranslate"><span class="pre">requirements.txt</span></code> (Flask, psycopg, SQLAlchemy,
-BeautifulSoup4, llama-cpp-python, huggingface_hub, pytest, pytest-cov)</p></li>
+BeautifulSoup4, llama-cpp-python, huggingface_hub, pytest, pytest-cov,
+Sphinx)</p></li>
 </ul>
 </section>
 <section id="installation">
 <h2>Installation<a class="headerlink" href="#installation" title="Link to this heading"></a></h2>
-<div class="highlight-bash notranslate"><div class="highlight"><pre><span></span>git<span class="w"> </span>clone<span class="w"> </span>https://github.com/sbattl15/jhu_software_concepts.git
+<div class="highlight-bash notranslate"><div class="highlight"><pre><span></span>git<span class="w"> </span>clone<span class="w"> </span>git@github.com:sbattl15/jhu_software_concepts.git
 <span class="nb">cd</span><span class="w"> </span>jhu_software_concepts/module_04
 python<span class="w"> </span>-m<span class="w"> </span>venv<span class="w"> </span>.venv
 <span class="nb">source</span><span class="w"> </span>.venv/bin/activate<span class="w">          </span><span class="c1"># Windows: .venv\Scripts\activate</span>
@@ -147,8 +149,8 @@ pip<span class="w"> </span>install<span class="w"> </span>-r<span class="w"> </s
 </section>
 <section id="environment-variables">
 <h2>Environment variables<a class="headerlink" href="#environment-variables" title="Link to this heading"></a></h2>
-<p>The database connection is read from the standard PostgreSQL (libpq)
-variables by <code class="docutils literal notranslate"><span class="pre">load_data.py</span></code>, <code class="docutils literal notranslate"><span class="pre">query_data.py</span></code> and <code class="docutils literal notranslate"><span class="pre">models.py</span></code>. Never
+<p>Every module connects to PostgreSQL through <code class="docutils literal notranslate"><span class="pre">DATABASE_URL</span></code>. If it isn’t
+set, they fall back to the standard libpq <code class="docutils literal notranslate"><span class="pre">PG*</span></code> variables. Never
 hard-code a password; set these in your shell or a <code class="docutils literal notranslate"><span class="pre">.env</span></code> file that is
 excluded from Git.</p>
 <table class="docutils align-default">
@@ -164,65 +166,72 @@ excluded from Git.</p>
 </tr>
 </thead>
 <tbody>
-<tr class="row-even"><td><p><code class="docutils literal notranslate"><span class="pre">PGDATABASE</span></code></p></td>
+<tr class="row-even"><td><p><code class="docutils literal notranslate"><span class="pre">DATABASE_URL</span></code></p></td>
+<td><p><em>(none)</em></p></td>
+<td><p>PostgreSQL connection URL, e.g.
+<code class="docutils literal notranslate"><span class="pre">postgresql://postgres:secret&#64;localhost:5432/gradcafe_applications</span></code>.
+Used by <code class="docutils literal notranslate"><span class="pre">models.py</span></code>, <code class="docutils literal notranslate"><span class="pre">load_data.py</span></code>, <code class="docutils literal notranslate"><span class="pre">query_data.py</span></code> and the
+Pull Data subprocess.</p></td>
+</tr>
+<tr class="row-odd"><td><p><code class="docutils literal notranslate"><span class="pre">PGDATABASE</span></code></p></td>
 <td><p><code class="docutils literal notranslate"><span class="pre">gradcafe_applications</span></code></p></td>
 <td><p>Database name</p></td>
 </tr>
-<tr class="row-odd"><td><p><code class="docutils literal notranslate"><span class="pre">PGUSER</span></code></p></td>
+<tr class="row-even"><td><p><code class="docutils literal notranslate"><span class="pre">PGUSER</span></code></p></td>
 <td><p><code class="docutils literal notranslate"><span class="pre">postgres</span></code></p></td>
 <td><p>Database role</p></td>
 </tr>
-<tr class="row-even"><td><p><code class="docutils literal notranslate"><span class="pre">PGPASSWORD</span></code></p></td>
+<tr class="row-odd"><td><p><code class="docutils literal notranslate"><span class="pre">PGPASSWORD</span></code></p></td>
 <td><p><em>(none)</em></p></td>
 <td><p>Database password (or use <code class="docutils literal notranslate"><span class="pre">~/.pgpass</span></code>)</p></td>
 </tr>
-<tr class="row-odd"><td><p><code class="docutils literal notranslate"><span class="pre">PGHOST</span></code></p></td>
+<tr class="row-even"><td><p><code class="docutils literal notranslate"><span class="pre">PGHOST</span></code></p></td>
 <td><p><code class="docutils literal notranslate"><span class="pre">localhost</span></code></p></td>
 <td><p>Database host</p></td>
 </tr>
-<tr class="row-even"><td><p><code class="docutils literal notranslate"><span class="pre">PGPORT</span></code></p></td>
+<tr class="row-odd"><td><p><code class="docutils literal notranslate"><span class="pre">PGPORT</span></code></p></td>
 <td><p><code class="docutils literal notranslate"><span class="pre">5432</span></code></p></td>
 <td><p>Database port</p></td>
 </tr>
-<tr class="row-odd"><td><p><code class="docutils literal notranslate"><span class="pre">FLASK_SECRET_KEY</span></code></p></td>
+<tr class="row-even"><td><p><code class="docutils literal notranslate"><span class="pre">FLASK_SECRET_KEY</span></code></p></td>
 <td><p><code class="docutils literal notranslate"><span class="pre">dev-secret-change-me</span></code></p></td>
 <td><p>Flask session key. <strong>Set a real value outside development.</strong></p></td>
 </tr>
-<tr class="row-even"><td><p><code class="docutils literal notranslate"><span class="pre">PULL_DATA_MAX_PAGES</span></code></p></td>
+<tr class="row-odd"><td><p><code class="docutils literal notranslate"><span class="pre">PULL_DATA_MAX_PAGES</span></code></p></td>
 <td><p><code class="docutils literal notranslate"><span class="pre">25</span></code></p></td>
 <td><p>Survey pages fetched per <strong>Pull Data</strong> click</p></td>
 </tr>
-<tr class="row-odd"><td><p><code class="docutils literal notranslate"><span class="pre">MODEL_REPO</span></code> / <code class="docutils literal notranslate"><span class="pre">MODEL_FILE</span></code></p></td>
+<tr class="row-even"><td><p><code class="docutils literal notranslate"><span class="pre">MODEL_REPO</span></code> / <code class="docutils literal notranslate"><span class="pre">MODEL_FILE</span></code></p></td>
 <td><p>TinyLlama 1.1B Chat (GGUF)</p></td>
 <td><p>Hugging Face model used by <code class="docutils literal notranslate"><span class="pre">llm_standardize.py</span></code></p></td>
 </tr>
-<tr class="row-even"><td><p><code class="docutils literal notranslate"><span class="pre">N_THREADS</span></code>, <code class="docutils literal notranslate"><span class="pre">N_CTX</span></code>, <code class="docutils literal notranslate"><span class="pre">N_GPU_LAYERS</span></code>, <code class="docutils literal notranslate"><span class="pre">NUM_WORKERS</span></code></p></td>
+<tr class="row-odd"><td><p><code class="docutils literal notranslate"><span class="pre">N_THREADS</span></code>, <code class="docutils literal notranslate"><span class="pre">N_CTX</span></code>, <code class="docutils literal notranslate"><span class="pre">N_GPU_LAYERS</span></code>, <code class="docutils literal notranslate"><span class="pre">NUM_WORKERS</span></code></p></td>
 <td><p>CPU count, <code class="docutils literal notranslate"><span class="pre">2048</span></code>, <code class="docutils literal notranslate"><span class="pre">0</span></code>, <code class="docutils literal notranslate"><span class="pre">12</span></code></p></td>
 <td><p>LLM performance tuning</p></td>
 </tr>
 </tbody>
 </table>
-<div class="admonition note">
-<p class="admonition-title">Note</p>
-<p>There is no single <code class="docutils literal notranslate"><span class="pre">DATABASE_URL</span></code> variable: <code class="docutils literal notranslate"><span class="pre">models.py</span></code> builds the
-SQLAlchemy URL from the <code class="docutils literal notranslate"><span class="pre">PG*</span></code> variables above
-(<code class="docutils literal notranslate"><span class="pre">postgresql+psycopg://PGUSER:PGPASSWORD&#64;PGHOST:PGPORT/PGDATABASE</span></code>).</p>
-</div>
+<p>The <code class="docutils literal notranslate"><span class="pre">PG*</span></code> variables are only used when <code class="docutils literal notranslate"><span class="pre">DATABASE_URL</span></code> is not set.
+<code class="docutils literal notranslate"><span class="pre">postgresql://</span></code> URLs are converted to SQLAlchemy’s
+<code class="docutils literal notranslate"><span class="pre">postgresql+psycopg://</span></code> form automatically.</p>
 <p>Example (macOS/Linux):</p>
-<div class="highlight-bash notranslate"><div class="highlight"><pre><span></span><span class="nb">export</span><span class="w"> </span><span class="nv">PGDATABASE</span><span class="o">=</span>gradcafe_applications<span class="w"> </span><span class="nv">PGUSER</span><span class="o">=</span>postgres<span class="w"> </span><span class="nv">PGPASSWORD</span><span class="o">=</span>secret
+<div class="highlight-bash notranslate"><div class="highlight"><pre><span></span><span class="nb">export</span><span class="w"> </span><span class="nv">DATABASE_URL</span><span class="o">=</span><span class="s2">&quot;postgresql://postgres:secret@localhost:5432/gradcafe_applications&quot;</span>
 <span class="nb">export</span><span class="w"> </span><span class="nv">FLASK_SECRET_KEY</span><span class="o">=</span><span class="s2">&quot;</span><span class="k">$(</span>python<span class="w"> </span>-c<span class="w"> </span><span class="s1">&#39;import secrets; print(secrets.token_hex())&#39;</span><span class="k">)</span><span class="s2">&quot;</span>
 </pre></div>
 </div>
 <p>Windows PowerShell:</p>
-<div class="highlight-powershell notranslate"><div class="highlight"><pre><span></span><span class="nv">$env:PGDATABASE</span> <span class="p">=</span> <span class="s2">&quot;gradcafe_applications&quot;</span><span class="p">;</span> <span class="nv">$env:PGUSER</span> <span class="p">=</span> <span class="s2">&quot;postgres&quot;</span><span class="p">;</span> <span class="nv">$env:PGPASSWORD</span> <span class="p">=</span> <span class="s2">&quot;secret&quot;</span>
+<div class="highlight-powershell notranslate"><div class="highlight"><pre><span></span><span class="nv">$env:DATABASE_URL</span> <span class="p">=</span> <span class="s2">&quot;postgresql://postgres:secret@localhost:5432/gradcafe_applications&quot;</span>
 </pre></div>
 </div>
 </section>
 <section id="loading-the-data">
 <h2>Loading the data<a class="headerlink" href="#loading-the-data" title="Link to this heading"></a></h2>
 <div class="highlight-bash notranslate"><div class="highlight"><pre><span></span><span class="nb">cd</span><span class="w"> </span>src
-<span class="c1"># creates the database if needed, then upserts every record</span>
-python<span class="w"> </span>load_data.py<span class="w"> </span>--json-file<span class="w"> </span>../llm_extend_applicant_data.json<span class="w"> </span>--create-db
+<span class="c1"># upserts every record into DATABASE_URL (creates the table if needed)</span>
+python<span class="w"> </span>load_data.py<span class="w"> </span>--json-file<span class="w"> </span>../llm_extend_applicant_data.json
+
+<span class="c1"># or create the database first, using the PG* options</span>
+python<span class="w"> </span>load_data.py<span class="w"> </span>--json-file<span class="w"> </span>../llm_extend_applicant_data.json<span class="w"> </span>--create-db<span class="w"> </span>--dbname<span class="w"> </span>gradcafe_applications
 
 <span class="c1"># print the analysis answers with raw SQL</span>
 python<span class="w"> </span>query_data.py
@@ -233,7 +242,14 @@ python<span class="w"> </span>query_data.py
 <h2>Running the app<a class="headerlink" href="#running-the-app" title="Link to this heading"></a></h2>
 <div class="highlight-bash notranslate"><div class="highlight"><pre><span></span><span class="nb">cd</span><span class="w"> </span>src/flask_website
 python<span class="w"> </span>app.py<span class="w">                 </span><span class="c1"># or: flask --app app run</span>
-<span class="c1"># open http://127.0.0.1:5000/</span>
+<span class="c1"># open http://127.0.0.1:5000/analysis</span>
+</pre></div>
+</div>
+<p>The app is built by the <code class="docutils literal notranslate"><span class="pre">create_app()</span></code> factory in <code class="docutils literal notranslate"><span class="pre">app.py</span></code>. Tests (or
+your own scripts) can build a separately configured copy:</p>
+<div class="highlight-python notranslate"><div class="highlight"><pre><span></span><span class="kn">from</span><span class="w"> </span><span class="nn">app</span><span class="w"> </span><span class="kn">import</span> <span class="n">create_app</span>
+
+<span class="n">app</span> <span class="o">=</span> <span class="n">create_app</span><span class="p">({</span><span class="s2">&quot;TESTING&quot;</span><span class="p">:</span> <span class="kc">True</span><span class="p">,</span> <span class="s2">&quot;DATABASE_URL&quot;</span><span class="p">:</span> <span class="s2">&quot;postgresql://localhost/test_db&quot;</span><span class="p">})</span>
 </pre></div>
 </div>
 <p>The page lists every analysis question with its answer and has two buttons:</p>
@@ -253,8 +269,9 @@ pytest<span class="w"> </span>-m<span class="w"> </span><span class="s2">&quot;w
 pytest<span class="w"> </span>-m<span class="w"> </span>web<span class="w">                                             </span><span class="c1"># one group</span>
 </pre></div>
 </div>
-<p>The <code class="docutils literal notranslate"><span class="pre">db</span></code> and <code class="docutils literal notranslate"><span class="pre">integration</span></code> tests need a reachable PostgreSQL database
-(set the <code class="docutils literal notranslate"><span class="pre">PG*</span></code> variables first); they skip if it can’t be reached. See
+<p>The <code class="docutils literal notranslate"><span class="pre">db</span></code> and <code class="docutils literal notranslate"><span class="pre">integration</span></code> tests that write to PostgreSQL need
+<code class="docutils literal notranslate"><span class="pre">DATABASE_URL</span></code> to point at a reachable <strong>test</strong> database; they skip if it
+can’t be reached. Coverage is measured over all of <code class="docutils literal notranslate"><span class="pre">src/</span></code>. See
 <a class="reference internal" href="testing.html"><span class="doc">Testing Guide</span></a> for details.</p>
 </section>
 <section id="building-these-docs">

@@ -44,6 +44,7 @@
 <li class="toctree-l1"><a class="reference internal" href="../overview.html">Overview &amp; Setup</a></li>
 <li class="toctree-l1"><a class="reference internal" href="../architecture.html">Architecture</a></li>
 <li class="toctree-l1"><a class="reference internal" href="../testing.html">Testing Guide</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../operational.html">Operational Notes</a></li>
 </ul>
 <p class="caption" role="heading"><span class="caption-text">API Reference</span></p>
 <ul>
@@ -81,10 +82,11 @@
 <span class="sd">with :mod:`psycopg`, runs one query per assignment question against the</span>
 <span class="sd">``applicants`` table (created by :mod:`load_data`), and prints the answers.</span>
 
-<span class="sd">Connection settings come from the libpq environment variables</span>
-<span class="sd">``PGDATABASE`` (default ``gradcafe_applications``), ``PGUSER`` (default</span>
-<span class="sd">``postgres``), ``PGPASSWORD``, ``PGHOST`` (default ``localhost``) and</span>
-<span class="sd">``PGPORT`` (default ``5432``).</span>
+<span class="sd">The database is chosen by the ``DATABASE_URL`` environment variable. If it</span>
+<span class="sd">isn&#39;t set, the libpq variables ``PGDATABASE`` (default</span>
+<span class="sd">``gradcafe_applications``), ``PGUSER`` (default ``postgres``),</span>
+<span class="sd">``PGPASSWORD``, ``PGHOST`` (default ``localhost``) and ``PGPORT`` (default</span>
+<span class="sd">``5432``) are used.</span>
 
 <span class="sd">Example::</span>
 
@@ -99,15 +101,34 @@
 <span class="kn">import</span><span class="w"> </span><span class="nn">psycopg</span>
 
 
+<div class="viewcode-block" id="libpq_url">
+<a class="viewcode-back" href="../api/query_data.html#query_data.libpq_url">[docs]</a>
+<span class="k">def</span><span class="w"> </span><span class="nf">libpq_url</span><span class="p">(</span><span class="n">url</span><span class="p">:</span> <span class="nb">str</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="nb">str</span><span class="p">:</span>
+<span class="w">    </span><span class="sd">&quot;&quot;&quot;Convert a SQLAlchemy-style URL into one psycopg/libpq accepts.</span>
+
+<span class="sd">    :param url: e.g. ``postgresql+psycopg://u:p@host:5432/db``.</span>
+<span class="sd">    :returns: e.g. ``postgresql://u:p@host:5432/db``.</span>
+<span class="sd">    :rtype: str</span>
+
+<span class="sd">    &gt;&gt;&gt; libpq_url(&quot;postgresql+psycopg://u:p@h/db&quot;)</span>
+<span class="sd">    &#39;postgresql://u:p@h/db&#39;</span>
+<span class="sd">    &quot;&quot;&quot;</span>
+    <span class="k">return</span> <span class="n">url</span><span class="o">.</span><span class="n">replace</span><span class="p">(</span><span class="s2">&quot;postgresql+psycopg://&quot;</span><span class="p">,</span> <span class="s2">&quot;postgresql://&quot;</span><span class="p">,</span> <span class="mi">1</span><span class="p">)</span></div>
+
+
+
 <div class="viewcode-block" id="get_connection">
 <a class="viewcode-back" href="../api/query_data.html#query_data.get_connection">[docs]</a>
 <span class="k">def</span><span class="w"> </span><span class="nf">get_connection</span><span class="p">()</span> <span class="o">-&gt;</span> <span class="n">psycopg</span><span class="o">.</span><span class="n">Connection</span><span class="p">:</span>
-<span class="w">    </span><span class="sd">&quot;&quot;&quot;Open a PostgreSQL connection from the ``PG*`` environment variables.</span>
+<span class="w">    </span><span class="sd">&quot;&quot;&quot;Open a PostgreSQL connection from ``DATABASE_URL`` or the ``PG*`` variables.</span>
 
 <span class="sd">    :returns: An open psycopg connection. The caller must close it.</span>
 <span class="sd">    :rtype: psycopg.Connection</span>
 <span class="sd">    :raises psycopg.OperationalError: If the database is unreachable.</span>
 <span class="sd">    &quot;&quot;&quot;</span>
+    <span class="n">database_url</span> <span class="o">=</span> <span class="n">os</span><span class="o">.</span><span class="n">environ</span><span class="o">.</span><span class="n">get</span><span class="p">(</span><span class="s2">&quot;DATABASE_URL&quot;</span><span class="p">)</span>
+    <span class="k">if</span> <span class="n">database_url</span><span class="p">:</span>
+        <span class="k">return</span> <span class="n">psycopg</span><span class="o">.</span><span class="n">connect</span><span class="p">(</span><span class="n">libpq_url</span><span class="p">(</span><span class="n">database_url</span><span class="p">))</span>
     <span class="k">return</span> <span class="n">psycopg</span><span class="o">.</span><span class="n">connect</span><span class="p">(</span>
         <span class="n">dbname</span><span class="o">=</span><span class="n">os</span><span class="o">.</span><span class="n">environ</span><span class="o">.</span><span class="n">get</span><span class="p">(</span><span class="s2">&quot;PGDATABASE&quot;</span><span class="p">,</span> <span class="s2">&quot;gradcafe_applications&quot;</span><span class="p">),</span>
         <span class="n">user</span><span class="o">=</span><span class="n">os</span><span class="o">.</span><span class="n">environ</span><span class="o">.</span><span class="n">get</span><span class="p">(</span><span class="s2">&quot;PGUSER&quot;</span><span class="p">,</span> <span class="s2">&quot;postgres&quot;</span><span class="p">),</span>

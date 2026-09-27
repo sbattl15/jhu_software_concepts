@@ -44,6 +44,7 @@
 <li class="toctree-l1"><a class="reference internal" href="../overview.html">Overview &amp; Setup</a></li>
 <li class="toctree-l1"><a class="reference internal" href="../architecture.html">Architecture</a></li>
 <li class="toctree-l1"><a class="reference internal" href="../testing.html">Testing Guide</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../operational.html">Operational Notes</a></li>
 </ul>
 <p class="caption" role="heading"><span class="caption-text">API Reference</span></p>
 <ul>
@@ -79,7 +80,9 @@
 
 <span class="sd">This module is the **web layer**. It renders the analysis page (answers to</span>
 <span class="sd">the assignment questions, queried live from PostgreSQL via</span>
-<span class="sd">``orm_queries``), and exposes two buttons backed by JSON endpoints:</span>
+<span class="sd">``orm_queries``), and exposes two buttons backed by JSON endpoints.</span>
+<span class="sd">The app is built by the :func:`create_app` factory; the module-level</span>
+<span class="sd">:data:`app` is ``create_app()`` with the default configuration.</span>
 
 <span class="sd">* **Pull Data** -- ``POST /pull-data`` launches ``pull_data.py`` (scrape -&gt;</span>
 <span class="sd">  clean -&gt; load) in a background subprocess; ``GET /pull-data/status``</span>
@@ -93,14 +96,14 @@
 <span class="sd">=========================  ======  ==========================================</span>
 <span class="sd">Route                      Method  Purpose</span>
 <span class="sd">=========================  ======  ==========================================</span>
-<span class="sd">``/``                      GET     Render ``index.html`` with fresh results.</span>
+<span class="sd">``/`` and ``/analysis``    GET     Render ``index.html`` with fresh results.</span>
 <span class="sd">``/pull-data``             POST    Start a background data pull (409 if busy).</span>
 <span class="sd">``/pull-data/status``      GET     JSON snapshot of the pull state.</span>
 <span class="sd">``/update-analysis``       POST    Re-query the analysis (409 if pulling).</span>
 <span class="sd">=========================  ======  ==========================================</span>
 
-<span class="sd">Environment variables: ``FLASK_SECRET_KEY`` plus whatever ``models``</span>
-<span class="sd">uses to connect to the database (e.g. ``DATABASE_URL``).</span>
+<span class="sd">Environment variables: ``DATABASE_URL`` (PostgreSQL connection, read by</span>
+<span class="sd">``models``) and ``FLASK_SECRET_KEY``.</span>
 <span class="sd">&quot;&quot;&quot;</span>
 
 <span class="kn">from</span><span class="w"> </span><span class="nn">__future__</span><span class="w"> </span><span class="kn">import</span> <span class="n">annotations</span>
@@ -114,12 +117,9 @@
 
 <span class="kn">from</span><span class="w"> </span><span class="nn">flask</span><span class="w"> </span><span class="kn">import</span> <span class="n">Flask</span><span class="p">,</span> <span class="n">jsonify</span><span class="p">,</span> <span class="n">render_template</span>
 
+<span class="kn">import</span><span class="w"> </span><span class="nn">models</span>
 <span class="kn">import</span><span class="w"> </span><span class="nn">orm_queries</span><span class="w"> </span><span class="k">as</span><span class="w"> </span><span class="nn">q</span>
 <span class="kn">from</span><span class="w"> </span><span class="nn">models</span><span class="w"> </span><span class="kn">import</span> <span class="n">get_session</span>
-
-<span class="c1">#: The Flask application instance.</span>
-<span class="n">app</span> <span class="o">=</span> <span class="n">Flask</span><span class="p">(</span><span class="vm">__name__</span><span class="p">)</span>
-<span class="n">app</span><span class="o">.</span><span class="n">secret_key</span> <span class="o">=</span> <span class="n">os</span><span class="o">.</span><span class="n">environ</span><span class="o">.</span><span class="n">get</span><span class="p">(</span><span class="s2">&quot;FLASK_SECRET_KEY&quot;</span><span class="p">,</span> <span class="s2">&quot;dev-secret-change-me&quot;</span><span class="p">)</span>
 
 <span class="c1">#: Directory containing this file; used as the subprocess working directory.</span>
 <span class="n">BASE_DIR</span> <span class="o">=</span> <span class="n">Path</span><span class="p">(</span><span class="vm">__file__</span><span class="p">)</span><span class="o">.</span><span class="n">resolve</span><span class="p">()</span><span class="o">.</span><span class="n">parent</span>
@@ -131,6 +131,10 @@
 <span class="c1"># --------------------------------------------------------------------------</span>
 
 <span class="n">_pull_lock</span> <span class="o">=</span> <span class="n">threading</span><span class="o">.</span><span class="n">Lock</span><span class="p">()</span>
+<span class="c1">#: Watcher thread of the most recent pull (see :func:`wait_for_pull`).</span>
+<span class="n">_pull_thread</span><span class="p">:</span> <span class="n">threading</span><span class="o">.</span><span class="n">Thread</span> <span class="o">|</span> <span class="kc">None</span> <span class="o">=</span> <span class="kc">None</span>
+<span class="c1">#: Database URL passed to :func:`create_app`, forwarded to ``pull_data.py``.</span>
+<span class="n">_database_url_override</span> <span class="o">=</span> <span class="kc">None</span>
 <span class="n">_pull_state</span><span class="p">:</span> <span class="nb">dict</span> <span class="o">=</span> <span class="p">{</span>
     <span class="s2">&quot;running&quot;</span><span class="p">:</span> <span class="kc">False</span><span class="p">,</span>
     <span class="s2">&quot;started_at&quot;</span><span class="p">:</span> <span class="kc">None</span><span class="p">,</span>
@@ -285,12 +289,17 @@
 <span class="sd">        was already running or the process could not be launched.</span>
 <span class="sd">    :rtype: tuple[bool, str]</span>
 <span class="sd">    &quot;&quot;&quot;</span>
+    <span class="k">global</span> <span class="n">_pull_thread</span>
     <span class="k">with</span> <span class="n">_pull_lock</span><span class="p">:</span>
         <span class="k">if</span> <span class="n">_pull_state</span><span class="p">[</span><span class="s2">&quot;running&quot;</span><span class="p">]:</span>
             <span class="n">started_at</span> <span class="o">=</span> <span class="n">_pull_state</span><span class="p">[</span><span class="s2">&quot;started_at&quot;</span><span class="p">]</span>
             <span class="n">when</span> <span class="o">=</span> <span class="n">started_at</span><span class="o">.</span><span class="n">strftime</span><span class="p">(</span><span class="s2">&quot;%I:%M %p&quot;</span><span class="p">)</span> <span class="k">if</span> <span class="n">started_at</span> <span class="k">else</span> <span class="s2">&quot;recently&quot;</span>
             <span class="k">return</span> <span class="kc">False</span><span class="p">,</span> <span class="sa">f</span><span class="s2">&quot;A data pull is already running (started </span><span class="si">{</span><span class="n">when</span><span class="si">}</span><span class="s2">). Please wait for it to finish.&quot;</span>
 
+        <span class="n">popen_kwargs</span> <span class="o">=</span> <span class="p">{}</span>
+        <span class="k">if</span> <span class="n">_database_url_override</span> <span class="ow">is</span> <span class="ow">not</span> <span class="kc">None</span><span class="p">:</span>
+            <span class="c1"># Make the subprocess write to the same database the app reads.</span>
+            <span class="n">popen_kwargs</span><span class="p">[</span><span class="s2">&quot;env&quot;</span><span class="p">]</span> <span class="o">=</span> <span class="p">{</span><span class="o">**</span><span class="n">os</span><span class="o">.</span><span class="n">environ</span><span class="p">,</span> <span class="s2">&quot;DATABASE_URL&quot;</span><span class="p">:</span> <span class="n">_database_url_override</span><span class="p">}</span>
         <span class="k">try</span><span class="p">:</span>
             <span class="n">proc</span> <span class="o">=</span> <span class="n">subprocess</span><span class="o">.</span><span class="n">Popen</span><span class="p">(</span>
                 <span class="p">[</span><span class="n">sys</span><span class="o">.</span><span class="n">executable</span><span class="p">,</span> <span class="nb">str</span><span class="p">(</span><span class="n">PULL_DATA_SCRIPT</span><span class="p">)],</span>
@@ -299,6 +308,7 @@
                 <span class="n">stderr</span><span class="o">=</span><span class="n">subprocess</span><span class="o">.</span><span class="n">STDOUT</span><span class="p">,</span>
                 <span class="n">text</span><span class="o">=</span><span class="kc">True</span><span class="p">,</span>
                 <span class="n">bufsize</span><span class="o">=</span><span class="mi">1</span><span class="p">,</span>
+                <span class="o">**</span><span class="n">popen_kwargs</span><span class="p">,</span>
             <span class="p">)</span>
         <span class="k">except</span> <span class="ne">OSError</span> <span class="k">as</span> <span class="n">exc</span><span class="p">:</span>
             <span class="k">return</span> <span class="kc">False</span><span class="p">,</span> <span class="sa">f</span><span class="s2">&quot;Could not start Pull Data: </span><span class="si">{</span><span class="n">exc</span><span class="si">}</span><span class="s2">&quot;</span>
@@ -309,8 +319,28 @@
         <span class="n">_pull_state</span><span class="p">[</span><span class="s2">&quot;success&quot;</span><span class="p">]</span> <span class="o">=</span> <span class="kc">None</span>
         <span class="n">_pull_state</span><span class="p">[</span><span class="s2">&quot;message&quot;</span><span class="p">]</span> <span class="o">=</span> <span class="s2">&quot;Pull Data started...&quot;</span>
 
-    <span class="n">threading</span><span class="o">.</span><span class="n">Thread</span><span class="p">(</span><span class="n">target</span><span class="o">=</span><span class="n">_watch_pull_process</span><span class="p">,</span> <span class="n">args</span><span class="o">=</span><span class="p">(</span><span class="n">proc</span><span class="p">,),</span> <span class="n">daemon</span><span class="o">=</span><span class="kc">True</span><span class="p">)</span><span class="o">.</span><span class="n">start</span><span class="p">()</span>
+    <span class="n">_pull_thread</span> <span class="o">=</span> <span class="n">threading</span><span class="o">.</span><span class="n">Thread</span><span class="p">(</span><span class="n">target</span><span class="o">=</span><span class="n">_watch_pull_process</span><span class="p">,</span> <span class="n">args</span><span class="o">=</span><span class="p">(</span><span class="n">proc</span><span class="p">,),</span> <span class="n">daemon</span><span class="o">=</span><span class="kc">True</span><span class="p">)</span>
+    <span class="n">_pull_thread</span><span class="o">.</span><span class="n">start</span><span class="p">()</span>
     <span class="k">return</span> <span class="kc">True</span><span class="p">,</span> <span class="s2">&quot;Started pulling new data from Grad Cafe. This may take a while depending on how much new data is available -- feel free to keep using the page.&quot;</span></div>
+
+
+
+<div class="viewcode-block" id="wait_for_pull">
+<a class="viewcode-back" href="../api/flask_app.html#app.wait_for_pull">[docs]</a>
+<span class="k">def</span><span class="w"> </span><span class="nf">wait_for_pull</span><span class="p">(</span><span class="n">timeout</span><span class="p">:</span> <span class="nb">float</span> <span class="o">|</span> <span class="kc">None</span> <span class="o">=</span> <span class="kc">None</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="nb">bool</span><span class="p">:</span>
+<span class="w">    </span><span class="sd">&quot;&quot;&quot;Block until the most recent pull&#39;s watcher thread has finished.</span>
+
+<span class="sd">    Lets tests (and scripts) wait for a pull deterministically instead of</span>
+<span class="sd">    polling with ``sleep()``.</span>
+
+<span class="sd">    :param timeout: Maximum seconds to wait, or ``None`` to wait forever.</span>
+<span class="sd">    :returns: ``True`` if no pull is running afterwards.</span>
+<span class="sd">    :rtype: bool</span>
+<span class="sd">    &quot;&quot;&quot;</span>
+    <span class="n">thread</span> <span class="o">=</span> <span class="n">_pull_thread</span>
+    <span class="k">if</span> <span class="n">thread</span> <span class="ow">is</span> <span class="ow">not</span> <span class="kc">None</span><span class="p">:</span>
+        <span class="n">thread</span><span class="o">.</span><span class="n">join</span><span class="p">(</span><span class="n">timeout</span><span class="p">)</span>
+    <span class="k">return</span> <span class="ow">not</span> <span class="n">_pull_is_running</span><span class="p">()</span></div>
 
 
 
@@ -465,9 +495,8 @@
 
 <div class="viewcode-block" id="analysis">
 <a class="viewcode-back" href="../api/flask_app.html#app.analysis">[docs]</a>
-<span class="nd">@app</span><span class="o">.</span><span class="n">route</span><span class="p">(</span><span class="s2">&quot;/&quot;</span><span class="p">)</span>
 <span class="k">def</span><span class="w"> </span><span class="nf">analysis</span><span class="p">()</span> <span class="o">-&gt;</span> <span class="nb">str</span><span class="p">:</span>
-<span class="w">    </span><span class="sd">&quot;&quot;&quot;``GET /`` -- render the analysis page.</span>
+<span class="w">    </span><span class="sd">&quot;&quot;&quot;``GET /`` and ``GET /analysis`` -- render the analysis page.</span>
 
 <span class="sd">    :returns: Rendered ``index.html`` with fresh query results and the</span>
 <span class="sd">        current pull status.</span>
@@ -486,30 +515,33 @@
 
 <div class="viewcode-block" id="pull_data">
 <a class="viewcode-back" href="../api/flask_app.html#app.pull_data">[docs]</a>
-<span class="nd">@app</span><span class="o">.</span><span class="n">route</span><span class="p">(</span><span class="s2">&quot;/pull-data&quot;</span><span class="p">,</span> <span class="n">methods</span><span class="o">=</span><span class="p">[</span><span class="s2">&quot;POST&quot;</span><span class="p">])</span>
 <span class="k">def</span><span class="w"> </span><span class="nf">pull_data</span><span class="p">():</span>
 <span class="w">    </span><span class="sd">&quot;&quot;&quot;``POST /pull-data`` -- start a background data pull.</span>
 
-<span class="sd">    :returns: ``200`` with ``{&quot;started&quot;: true, &quot;message&quot;: ...}``, or</span>
-<span class="sd">        ``409`` with ``{&quot;error&quot;: ...}`` if a pull is already running.</span>
+<span class="sd">    :returns: ``200`` with ``{&quot;ok&quot;: true, &quot;started&quot;: true, &quot;message&quot;: ...}``;</span>
+<span class="sd">        ``409`` with ``{&quot;ok&quot;: false, &quot;busy&quot;: true, &quot;error&quot;: ...}`` if a pull</span>
+<span class="sd">        is already running; or ``500`` with ``{&quot;ok&quot;: false, &quot;error&quot;: ...}``</span>
+<span class="sd">        if the pull process could not be started (nothing is written).</span>
 <span class="sd">    :rtype: tuple[flask.Response, int]</span>
 <span class="sd">    &quot;&quot;&quot;</span>
     <span class="k">if</span> <span class="n">_pull_is_running</span><span class="p">():</span>
-        <span class="k">return</span> <span class="n">jsonify</span><span class="p">({</span><span class="s2">&quot;error&quot;</span><span class="p">:</span> <span class="s2">&quot;A data pull is already in progress.&quot;</span><span class="p">}),</span> <span class="mi">409</span>
+        <span class="k">return</span> <span class="n">jsonify</span><span class="p">({</span><span class="s2">&quot;ok&quot;</span><span class="p">:</span> <span class="kc">False</span><span class="p">,</span> <span class="s2">&quot;busy&quot;</span><span class="p">:</span> <span class="kc">True</span><span class="p">,</span> <span class="s2">&quot;error&quot;</span><span class="p">:</span> <span class="s2">&quot;A data pull is already in progress.&quot;</span><span class="p">}),</span> <span class="mi">409</span>
 
     <span class="n">started</span><span class="p">,</span> <span class="n">message</span> <span class="o">=</span> <span class="n">start_pull_data</span><span class="p">()</span>
     <span class="k">if</span> <span class="ow">not</span> <span class="n">started</span><span class="p">:</span>
-        <span class="c1"># Lost a race with another request between the check above and</span>
-        <span class="c1"># start_pull_data()&#39;s own lock -- still busy, so still a 409.</span>
-        <span class="k">return</span> <span class="n">jsonify</span><span class="p">({</span><span class="s2">&quot;error&quot;</span><span class="p">:</span> <span class="n">message</span><span class="p">}),</span> <span class="mi">409</span>
+        <span class="k">if</span> <span class="n">_pull_is_running</span><span class="p">():</span>
+            <span class="c1"># Lost a race with another request between the check above and</span>
+            <span class="c1"># start_pull_data()&#39;s own lock -- still busy, so still a 409.</span>
+            <span class="k">return</span> <span class="n">jsonify</span><span class="p">({</span><span class="s2">&quot;ok&quot;</span><span class="p">:</span> <span class="kc">False</span><span class="p">,</span> <span class="s2">&quot;busy&quot;</span><span class="p">:</span> <span class="kc">True</span><span class="p">,</span> <span class="s2">&quot;error&quot;</span><span class="p">:</span> <span class="n">message</span><span class="p">}),</span> <span class="mi">409</span>
+        <span class="c1"># The loader could not be launched at all.</span>
+        <span class="k">return</span> <span class="n">jsonify</span><span class="p">({</span><span class="s2">&quot;ok&quot;</span><span class="p">:</span> <span class="kc">False</span><span class="p">,</span> <span class="s2">&quot;error&quot;</span><span class="p">:</span> <span class="n">message</span><span class="p">}),</span> <span class="mi">500</span>
 
-    <span class="k">return</span> <span class="n">jsonify</span><span class="p">({</span><span class="s2">&quot;started&quot;</span><span class="p">:</span> <span class="kc">True</span><span class="p">,</span> <span class="s2">&quot;message&quot;</span><span class="p">:</span> <span class="n">message</span><span class="p">}),</span> <span class="mi">200</span></div>
+    <span class="k">return</span> <span class="n">jsonify</span><span class="p">({</span><span class="s2">&quot;ok&quot;</span><span class="p">:</span> <span class="kc">True</span><span class="p">,</span> <span class="s2">&quot;started&quot;</span><span class="p">:</span> <span class="kc">True</span><span class="p">,</span> <span class="s2">&quot;message&quot;</span><span class="p">:</span> <span class="n">message</span><span class="p">}),</span> <span class="mi">200</span></div>
 
 
 
 <div class="viewcode-block" id="pull_data_status">
 <a class="viewcode-back" href="../api/flask_app.html#app.pull_data_status">[docs]</a>
-<span class="nd">@app</span><span class="o">.</span><span class="n">route</span><span class="p">(</span><span class="s2">&quot;/pull-data/status&quot;</span><span class="p">)</span>
 <span class="k">def</span><span class="w"> </span><span class="nf">pull_data_status</span><span class="p">():</span>
 <span class="w">    </span><span class="sd">&quot;&quot;&quot;``GET /pull-data/status`` -- report the current pull state.</span>
 
@@ -533,21 +565,69 @@
 
 <div class="viewcode-block" id="update_analysis">
 <a class="viewcode-back" href="../api/flask_app.html#app.update_analysis">[docs]</a>
-<span class="nd">@app</span><span class="o">.</span><span class="n">route</span><span class="p">(</span><span class="s2">&quot;/update-analysis&quot;</span><span class="p">,</span> <span class="n">methods</span><span class="o">=</span><span class="p">[</span><span class="s2">&quot;POST&quot;</span><span class="p">])</span>
 <span class="k">def</span><span class="w"> </span><span class="nf">update_analysis</span><span class="p">():</span>
 <span class="w">    </span><span class="sd">&quot;&quot;&quot;``POST /update-analysis`` -- re-run the analysis queries.</span>
 
-<span class="sd">    :returns: ``200`` with ``{&quot;updated&quot;: true, &quot;generated_at&quot;: ...}``, or</span>
-<span class="sd">        ``409`` with ``{&quot;error&quot;: ...}`` while a pull is running (no query</span>
-<span class="sd">        is executed in that case).</span>
+<span class="sd">    :returns: ``200`` with ``{&quot;ok&quot;: true, &quot;updated&quot;: true, &quot;generated_at&quot;: ...}``,</span>
+<span class="sd">        or ``409`` with ``{&quot;ok&quot;: false, &quot;busy&quot;: true, &quot;error&quot;: ...}`` while a</span>
+<span class="sd">        pull is running (no query is executed in that case).</span>
 <span class="sd">    :rtype: tuple[flask.Response, int]</span>
 <span class="sd">    &quot;&quot;&quot;</span>
     <span class="k">if</span> <span class="n">_pull_is_running</span><span class="p">():</span>
-        <span class="k">return</span> <span class="n">jsonify</span><span class="p">({</span><span class="s2">&quot;error&quot;</span><span class="p">:</span> <span class="s2">&quot;A data pull is in progress; try again once it finishes.&quot;</span><span class="p">}),</span> <span class="mi">409</span>
+        <span class="k">return</span> <span class="n">jsonify</span><span class="p">({</span>
+            <span class="s2">&quot;ok&quot;</span><span class="p">:</span> <span class="kc">False</span><span class="p">,</span>
+            <span class="s2">&quot;busy&quot;</span><span class="p">:</span> <span class="kc">True</span><span class="p">,</span>
+            <span class="s2">&quot;error&quot;</span><span class="p">:</span> <span class="s2">&quot;A data pull is in progress; try again once it finishes.&quot;</span><span class="p">,</span>
+        <span class="p">}),</span> <span class="mi">409</span>
 
     <span class="n">context</span> <span class="o">=</span> <span class="n">_build_analysis_context</span><span class="p">()</span>
-    <span class="k">return</span> <span class="n">jsonify</span><span class="p">({</span><span class="s2">&quot;updated&quot;</span><span class="p">:</span> <span class="kc">True</span><span class="p">,</span> <span class="s2">&quot;generated_at&quot;</span><span class="p">:</span> <span class="n">context</span><span class="p">[</span><span class="s2">&quot;generated_at&quot;</span><span class="p">]}),</span> <span class="mi">200</span></div>
+    <span class="k">return</span> <span class="n">jsonify</span><span class="p">({</span><span class="s2">&quot;ok&quot;</span><span class="p">:</span> <span class="kc">True</span><span class="p">,</span> <span class="s2">&quot;updated&quot;</span><span class="p">:</span> <span class="kc">True</span><span class="p">,</span> <span class="s2">&quot;generated_at&quot;</span><span class="p">:</span> <span class="n">context</span><span class="p">[</span><span class="s2">&quot;generated_at&quot;</span><span class="p">]}),</span> <span class="mi">200</span></div>
 
+
+
+<span class="c1"># --------------------------------------------------------------------------</span>
+<span class="c1"># Application factory</span>
+<span class="c1"># --------------------------------------------------------------------------</span>
+
+
+<div class="viewcode-block" id="create_app">
+<a class="viewcode-back" href="../api/flask_app.html#app.create_app">[docs]</a>
+<span class="k">def</span><span class="w"> </span><span class="nf">create_app</span><span class="p">(</span><span class="n">config</span><span class="p">:</span> <span class="nb">dict</span> <span class="o">|</span> <span class="kc">None</span> <span class="o">=</span> <span class="kc">None</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="n">Flask</span><span class="p">:</span>
+<span class="w">    </span><span class="sd">&quot;&quot;&quot;Build and configure the Flask application.</span>
+
+<span class="sd">    :param config: Optional settings merged into ``app.config``. Pass</span>
+<span class="sd">        ``{&quot;DATABASE_URL&quot;: &quot;postgresql://...&quot;}`` to use a different</span>
+<span class="sd">        database (e.g. in tests), or ``{&quot;TESTING&quot;: True}``.</span>
+<span class="sd">    :returns: A Flask app with every route registered.</span>
+<span class="sd">    :rtype: flask.Flask</span>
+
+<span class="sd">    Example::</span>
+
+<span class="sd">        app = create_app({&quot;TESTING&quot;: True})</span>
+<span class="sd">        client = app.test_client()</span>
+<span class="sd">    &quot;&quot;&quot;</span>
+    <span class="k">global</span> <span class="n">_database_url_override</span>
+    <span class="n">flask_app</span> <span class="o">=</span> <span class="n">Flask</span><span class="p">(</span><span class="vm">__name__</span><span class="p">)</span>
+    <span class="n">flask_app</span><span class="o">.</span><span class="n">secret_key</span> <span class="o">=</span> <span class="n">os</span><span class="o">.</span><span class="n">environ</span><span class="o">.</span><span class="n">get</span><span class="p">(</span><span class="s2">&quot;FLASK_SECRET_KEY&quot;</span><span class="p">,</span> <span class="s2">&quot;dev-secret-change-me&quot;</span><span class="p">)</span>
+    <span class="k">if</span> <span class="n">config</span><span class="p">:</span>
+        <span class="n">flask_app</span><span class="o">.</span><span class="n">config</span><span class="o">.</span><span class="n">update</span><span class="p">(</span><span class="n">config</span><span class="p">)</span>
+
+    <span class="n">database_url</span> <span class="o">=</span> <span class="n">flask_app</span><span class="o">.</span><span class="n">config</span><span class="o">.</span><span class="n">get</span><span class="p">(</span><span class="s2">&quot;DATABASE_URL&quot;</span><span class="p">)</span>
+    <span class="k">if</span> <span class="n">database_url</span><span class="p">:</span>
+        <span class="n">models</span><span class="o">.</span><span class="n">configure_database</span><span class="p">(</span><span class="n">database_url</span><span class="p">)</span>
+        <span class="n">_database_url_override</span> <span class="o">=</span> <span class="n">database_url</span>
+
+    <span class="n">flask_app</span><span class="o">.</span><span class="n">add_url_rule</span><span class="p">(</span><span class="s2">&quot;/&quot;</span><span class="p">,</span> <span class="s2">&quot;analysis&quot;</span><span class="p">,</span> <span class="n">analysis</span><span class="p">)</span>
+    <span class="n">flask_app</span><span class="o">.</span><span class="n">add_url_rule</span><span class="p">(</span><span class="s2">&quot;/analysis&quot;</span><span class="p">,</span> <span class="s2">&quot;analysis&quot;</span><span class="p">,</span> <span class="n">analysis</span><span class="p">)</span>
+    <span class="n">flask_app</span><span class="o">.</span><span class="n">add_url_rule</span><span class="p">(</span><span class="s2">&quot;/pull-data&quot;</span><span class="p">,</span> <span class="s2">&quot;pull_data&quot;</span><span class="p">,</span> <span class="n">pull_data</span><span class="p">,</span> <span class="n">methods</span><span class="o">=</span><span class="p">[</span><span class="s2">&quot;POST&quot;</span><span class="p">])</span>
+    <span class="n">flask_app</span><span class="o">.</span><span class="n">add_url_rule</span><span class="p">(</span><span class="s2">&quot;/pull-data/status&quot;</span><span class="p">,</span> <span class="s2">&quot;pull_data_status&quot;</span><span class="p">,</span> <span class="n">pull_data_status</span><span class="p">)</span>
+    <span class="n">flask_app</span><span class="o">.</span><span class="n">add_url_rule</span><span class="p">(</span><span class="s2">&quot;/update-analysis&quot;</span><span class="p">,</span> <span class="s2">&quot;update_analysis&quot;</span><span class="p">,</span> <span class="n">update_analysis</span><span class="p">,</span> <span class="n">methods</span><span class="o">=</span><span class="p">[</span><span class="s2">&quot;POST&quot;</span><span class="p">])</span>
+    <span class="k">return</span> <span class="n">flask_app</span></div>
+
+
+
+<span class="c1">#: The default application instance (``python app.py`` / ``flask --app app run``).</span>
+<span class="n">app</span> <span class="o">=</span> <span class="n">create_app</span><span class="p">()</span>
 
 
 <span class="k">if</span> <span class="vm">__name__</span> <span class="o">==</span> <span class="s2">&quot;__main__&quot;</span><span class="p">:</span>

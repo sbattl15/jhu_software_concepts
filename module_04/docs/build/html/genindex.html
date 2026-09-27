@@ -44,6 +44,7 @@
 <li class="toctree-l1"><a class="reference internal" href="overview.html">Overview &amp; Setup</a></li>
 <li class="toctree-l1"><a class="reference internal" href="architecture.html">Architecture</a></li>
 <li class="toctree-l1"><a class="reference internal" href="testing.html">Testing Guide</a></li>
+<li class="toctree-l1"><a class="reference internal" href="operational.html">Operational Notes</a></li>
 </ul>
 <p class="caption" role="heading"><span class="caption-text">API Reference</span></p>
 <ul>
@@ -92,6 +93,7 @@
  | <a href="#S"><strong>S</strong></a>
  | <a href="#T"><strong>T</strong></a>
  | <a href="#U"><strong>U</strong></a>
+ | <a href="#W"><strong>W</strong></a>
  
 </div>
 <h2 id="_">_</h2>
@@ -124,6 +126,8 @@
       <li><a href="api/pull_data.html#pull_data._load_rows">_load_rows() (in module pull_data)</a>
 </li>
       <li><a href="api/scrape.html#scrape._looks_blocked">_looks_blocked() (in module scrape)</a>
+</li>
+      <li><a href="api/pull_data.html#pull_data._normalize_degree">_normalize_degree() (in module pull_data)</a>
 </li>
   </ul></td>
   <td style="width: 33%; vertical-align: top;"><ul>
@@ -197,13 +201,15 @@
         <li><a href="api/clean.html#module-clean">module</a>
 </li>
       </ul></li>
-  </ul></td>
-  <td style="width: 33%; vertical-align: top;"><ul>
       <li><a href="api/clean.html#clean.clean_data">clean_data() (in module clean)</a>
 </li>
+  </ul></td>
+  <td style="width: 33%; vertical-align: top;"><ul>
       <li><a href="api/load_data.html#load_data.clean_text">clean_text() (in module load_data)</a>
 </li>
       <li><a href="api/scrape.html#scrape.confirm_scraping_permitted">confirm_scraping_permitted() (in module scrape)</a>
+</li>
+      <li><a href="api/flask_app.html#app.create_app">create_app() (in module app)</a>
 </li>
       <li><a href="api/load_data.html#load_data.create_database_if_missing">create_database_if_missing() (in module load_data)</a>
 </li>
@@ -239,6 +245,12 @@
 <h2 id="L">L</h2>
 <table style="width: 100%" class="indextable genindextable"><tr>
   <td style="width: 33%; vertical-align: top;"><ul>
+      <li><a href="api/load_data.html#load_data.libpq_url">libpq_url() (in module load_data)</a>
+
+      <ul>
+        <li><a href="api/query_data.html#query_data.libpq_url">(in module query_data)</a>
+</li>
+      </ul></li>
       <li>
     load_data
 
@@ -263,6 +275,8 @@
       <ul>
         <li><a href="api/load_data.html#load_data.main">(in module load_data)</a>
 </li>
+        <li><a href="api/pull_data.html#pull_data.main">(in module pull_data)</a>
+</li>
         <li><a href="api/query_data.html#query_data.main">(in module query_data)</a>
 </li>
         <li><a href="api/scrape.html#scrape.main">(in module scrape)</a>
@@ -272,10 +286,10 @@
 </li>
       <li><a href="api/scrape.html#scrape.MAX_SIBLING_ROW_HOPS">MAX_SIBLING_ROW_HOPS (in module scrape)</a>
 </li>
-      <li><a href="api/load_data.html#load_data.MIGRATE_SQL">MIGRATE_SQL (in module load_data)</a>
-</li>
   </ul></td>
   <td style="width: 33%; vertical-align: top;"><ul>
+      <li><a href="api/load_data.html#load_data.MIGRATE_SQL">MIGRATE_SQL (in module load_data)</a>
+</li>
       <li>
     module
 
@@ -397,6 +411,14 @@
   </ul></td>
   <td style="width: 33%; vertical-align: top;"><ul>
       <li><a href="api/scrape.html#scrape.USER_AGENT">USER_AGENT (in module scrape)</a>
+</li>
+  </ul></td>
+</tr></table>
+
+<h2 id="W">W</h2>
+<table style="width: 100%" class="indextable genindextable"><tr>
+  <td style="width: 33%; vertical-align: top;"><ul>
+      <li><a href="api/flask_app.html#app.wait_for_pull">wait_for_pull() (in module app)</a>
 </li>
   </ul></td>
 </tr></table>

@@ -26,12 +26,12 @@ Project layout
    │   ├── load_data.py          one-time bulk load of the JSON into Postgres
    │   ├── query_data.py         raw-SQL answers printed to the console
    │   └── flask_website/
-   │       ├── app.py            Flask app and routes
+   │       ├── app.py            Flask app: create_app() factory and routes
    │       ├── scrape.py         GradCafe scraper
    │       ├── clean.py          regex cleaner
    │       ├── llm_standardize.py  local-LLM program/university standardizer
    │       ├── pull_data.py      scrape → clean → LLM → load (Pull Data button)
-   │       ├── models.py         SQLAlchemy Applicant model + session
+   │       ├── models.py         SQLAlchemy Applicant model; reads DATABASE_URL
    │       ├── orm_queries.py    analysis queries via SQLAlchemy
    │       └── templates/index.html
    ├── tests/                    pytest suite
@@ -44,14 +44,15 @@ Requirements
 * Python 3.10+
 * PostgreSQL 14+
 * The packages in ``requirements.txt`` (Flask, psycopg, SQLAlchemy,
-  BeautifulSoup4, llama-cpp-python, huggingface_hub, pytest, pytest-cov)
+  BeautifulSoup4, llama-cpp-python, huggingface_hub, pytest, pytest-cov,
+  Sphinx)
 
 Installation
 ------------
 
 .. code-block:: bash
 
-   git clone https://github.com/sbattl15/jhu_software_concepts.git
+   git clone git@github.com:sbattl15/jhu_software_concepts.git
    cd jhu_software_concepts/module_04
    python -m venv .venv
    source .venv/bin/activate          # Windows: .venv\Scripts\activate
@@ -60,8 +61,8 @@ Installation
 Environment variables
 ---------------------
 
-The database connection is read from the standard PostgreSQL (libpq)
-variables by ``load_data.py``, ``query_data.py`` and ``models.py``. Never
+Every module connects to PostgreSQL through ``DATABASE_URL``. If it isn't
+set, they fall back to the standard libpq ``PG*`` variables. Never
 hard-code a password; set these in your shell or a ``.env`` file that is
 excluded from Git.
 
@@ -72,6 +73,12 @@ excluded from Git.
    * - Variable
      - Default
      - Purpose
+   * - ``DATABASE_URL``
+     - *(none)*
+     - PostgreSQL connection URL, e.g.
+       ``postgresql://postgres:secret@localhost:5432/gradcafe_applications``.
+       Used by ``models.py``, ``load_data.py``, ``query_data.py`` and the
+       Pull Data subprocess.
    * - ``PGDATABASE``
      - ``gradcafe_applications``
      - Database name
@@ -100,24 +107,22 @@ excluded from Git.
      - CPU count, ``2048``, ``0``, ``12``
      - LLM performance tuning
 
-.. note::
-
-   There is no single ``DATABASE_URL`` variable: ``models.py`` builds the
-   SQLAlchemy URL from the ``PG*`` variables above
-   (``postgresql+psycopg://PGUSER:PGPASSWORD@PGHOST:PGPORT/PGDATABASE``).
+The ``PG*`` variables are only used when ``DATABASE_URL`` is not set.
+``postgresql://`` URLs are converted to SQLAlchemy's
+``postgresql+psycopg://`` form automatically.
 
 Example (macOS/Linux):
 
 .. code-block:: bash
 
-   export PGDATABASE=gradcafe_applications PGUSER=postgres PGPASSWORD=secret
+   export DATABASE_URL="postgresql://postgres:secret@localhost:5432/gradcafe_applications"
    export FLASK_SECRET_KEY="$(python -c 'import secrets; print(secrets.token_hex())')"
 
 Windows PowerShell:
 
 .. code-block:: powershell
 
-   $env:PGDATABASE = "gradcafe_applications"; $env:PGUSER = "postgres"; $env:PGPASSWORD = "secret"
+   $env:DATABASE_URL = "postgresql://postgres:secret@localhost:5432/gradcafe_applications"
 
 Loading the data
 ----------------
@@ -125,8 +130,11 @@ Loading the data
 .. code-block:: bash
 
    cd src
-   # creates the database if needed, then upserts every record
-   python load_data.py --json-file ../llm_extend_applicant_data.json --create-db
+   # upserts every record into DATABASE_URL (creates the table if needed)
+   python load_data.py --json-file ../llm_extend_applicant_data.json
+
+   # or create the database first, using the PG* options
+   python load_data.py --json-file ../llm_extend_applicant_data.json --create-db --dbname gradcafe_applications
 
    # print the analysis answers with raw SQL
    python query_data.py
@@ -138,7 +146,16 @@ Running the app
 
    cd src/flask_website
    python app.py                 # or: flask --app app run
-   # open http://127.0.0.1:5000/
+   # open http://127.0.0.1:5000/analysis
+
+The app is built by the ``create_app()`` factory in ``app.py``. Tests (or
+your own scripts) can build a separately configured copy:
+
+.. code-block:: python
+
+   from app import create_app
+
+   app = create_app({"TESTING": True, "DATABASE_URL": "postgresql://localhost/test_db"})
 
 The page lists every analysis question with its answer and has two buttons:
 
@@ -159,8 +176,9 @@ coverage options):
    pytest -m "web or buttons or analysis or db or integration"
    pytest -m web                                             # one group
 
-The ``db`` and ``integration`` tests need a reachable PostgreSQL database
-(set the ``PG*`` variables first); they skip if it can't be reached. See
+The ``db`` and ``integration`` tests that write to PostgreSQL need
+``DATABASE_URL`` to point at a reachable **test** database; they skip if it
+can't be reached. Coverage is measured over all of ``src/``. See
 :doc:`testing` for details.
 
 Building these docs

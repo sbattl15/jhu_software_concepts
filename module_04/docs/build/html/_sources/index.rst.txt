@@ -19,6 +19,7 @@ dashboard built with Flask.
    overview
    architecture
    testing
+   operational
 
 .. toctree::
    :maxdepth: 2

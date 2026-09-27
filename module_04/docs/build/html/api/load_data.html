@@ -47,6 +47,7 @@
 <li class="toctree-l1"><a class="reference internal" href="../overview.html">Overview &amp; Setup</a></li>
 <li class="toctree-l1"><a class="reference internal" href="../architecture.html">Architecture</a></li>
 <li class="toctree-l1"><a class="reference internal" href="../testing.html">Testing Guide</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../operational.html">Operational Notes</a></li>
 </ul>
 <p class="caption" role="heading"><span class="caption-text">API Reference</span></p>
 <ul class="current">
@@ -54,6 +55,7 @@
 <li class="toctree-l2"><a class="reference internal" href="scrape.html">scrape – Extract</a></li>
 <li class="toctree-l2"><a class="reference internal" href="clean.html">clean – Transform</a></li>
 <li class="toctree-l2 current"><a class="current reference internal" href="#">load_data – Load</a><ul>
+<li class="toctree-l3"><a class="reference internal" href="#load_data.libpq_url"><code class="docutils literal notranslate"><span class="pre">libpq_url()</span></code></a></li>
 <li class="toctree-l3"><a class="reference internal" href="#load_data.parse_date_added"><code class="docutils literal notranslate"><span class="pre">parse_date_added()</span></code></a></li>
 <li class="toctree-l3"><a class="reference internal" href="#load_data.parse_gpa"><code class="docutils literal notranslate"><span class="pre">parse_gpa()</span></code></a></li>
 <li class="toctree-l3"><a class="reference internal" href="#load_data.parse_score"><code class="docutils literal notranslate"><span class="pre">parse_score()</span></code></a></li>
@@ -108,13 +110,35 @@ the LLM-extended JSON produced by the cleaning step, converts free-form
 string fields (<code class="docutils literal notranslate"><span class="pre">&quot;Added</span> <span class="pre">on</span> <span class="pre">Feb</span> <span class="pre">17,</span> <span class="pre">2026&quot;</span></code>, <code class="docutils literal notranslate"><span class="pre">&quot;GPA</span> <span class="pre">3.85&quot;</span></code>, <code class="docutils literal notranslate"><span class="pre">&quot;GRE</span> <span class="pre">V</span> <span class="pre">160&quot;</span></code>)
 into typed Python values, and bulk-upserts them into the <code class="docutils literal notranslate"><span class="pre">applicants</span></code>
 table.</p>
-<p>Connection settings come from the standard libpq environment variables
-(<code class="docutils literal notranslate"><span class="pre">PGDATABASE</span></code>, <code class="docutils literal notranslate"><span class="pre">PGUSER</span></code>, <code class="docutils literal notranslate"><span class="pre">PGPASSWORD</span></code>, <code class="docutils literal notranslate"><span class="pre">PGHOST</span></code>, <code class="docutils literal notranslate"><span class="pre">PGPORT</span></code>) and can be
-overridden on the command line.</p>
+<p>The database is chosen by the <code class="docutils literal notranslate"><span class="pre">DATABASE_URL</span></code> environment variable (or
+<code class="docutils literal notranslate"><span class="pre">--database-url</span></code>). If that isn’t set, the standard libpq variables
+(<code class="docutils literal notranslate"><span class="pre">PGDATABASE</span></code>, <code class="docutils literal notranslate"><span class="pre">PGUSER</span></code>, <code class="docutils literal notranslate"><span class="pre">PGPASSWORD</span></code>, <code class="docutils literal notranslate"><span class="pre">PGHOST</span></code>, <code class="docutils literal notranslate"><span class="pre">PGPORT</span></code>) are used,
+and each can be overridden on the command line.</p>
 <p>Example:</p>
 <div class="highlight-default notranslate"><div class="highlight"><pre><span></span><span class="n">python</span> <span class="n">load_data</span><span class="o">.</span><span class="n">py</span> <span class="o">--</span><span class="n">json</span><span class="o">-</span><span class="n">file</span> <span class="n">llm_extend_applicant_data</span><span class="o">.</span><span class="n">json</span> <span class="o">--</span><span class="n">create</span><span class="o">-</span><span class="n">db</span>
 </pre></div>
 </div>
+<dl class="py function">
+<dt class="sig sig-object py" id="load_data.libpq_url">
+<span class="sig-prename descclassname"><span class="pre">load_data.</span></span><span class="sig-name descname"><span class="pre">libpq_url</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">url</span></span></em><span class="sig-paren">)</span><a class="reference internal" href="../_modules/load_data.html#libpq_url"><span class="viewcode-link"><span class="pre">[source]</span></span></a><a class="headerlink" href="#load_data.libpq_url" title="Link to this definition"></a></dt>
+<dd><p>Convert a SQLAlchemy-style URL into one psycopg/libpq accepts.</p>
+<dl class="field-list simple">
+<dt class="field-odd">Parameters<span class="colon">:</span></dt>
+<dd class="field-odd"><p><strong>url</strong> (<em>str</em>) – e.g. <code class="docutils literal notranslate"><span class="pre">postgresql+psycopg://u:p&#64;host:5432/db</span></code>.</p>
+</dd>
+<dt class="field-even">Returns<span class="colon">:</span></dt>
+<dd class="field-even"><p>e.g. <code class="docutils literal notranslate"><span class="pre">postgresql://u:p&#64;host:5432/db</span></code>.</p>
+</dd>
+<dt class="field-odd">Return type<span class="colon">:</span></dt>
+<dd class="field-odd"><p>str</p>
+</dd>
+</dl>
+<div class="doctest highlight-default notranslate"><div class="highlight"><pre><span></span><span class="gp">&gt;&gt;&gt; </span><span class="n">libpq_url</span><span class="p">(</span><span class="s2">&quot;postgresql+psycopg://u:p@h/db&quot;</span><span class="p">)</span>
+<span class="go">&#39;postgresql://u:p@h/db&#39;</span>
+</pre></div>
+</div>
+</dd></dl>
+
 <dl class="py function">
 <dt class="sig sig-object py" id="load_data.parse_date_added">
 <span class="sig-prename descclassname"><span class="pre">load_data.</span></span><span class="sig-name descname"><span class="pre">parse_date_added</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">value</span></span></em><span class="sig-paren">)</span><a class="reference internal" href="../_modules/load_data.html#parse_date_added"><span class="viewcode-link"><span class="pre">[source]</span></span></a><a class="headerlink" href="#load_data.parse_date_added" title="Link to this definition"></a></dt>

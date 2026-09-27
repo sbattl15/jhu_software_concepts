@@ -46,6 +46,7 @@
 <li class="toctree-l1"><a class="reference internal" href="../overview.html">Overview &amp; Setup</a></li>
 <li class="toctree-l1"><a class="reference internal" href="../architecture.html">Architecture</a></li>
 <li class="toctree-l1"><a class="reference internal" href="../testing.html">Testing Guide</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../operational.html">Operational Notes</a></li>
 </ul>
 <p class="caption" role="heading"><span class="caption-text">API Reference</span></p>
 <ul class="current">
@@ -56,9 +57,11 @@
 <li class="toctree-l2"><a class="reference internal" href="query_data.html">query_data – SQL Analysis</a></li>
 <li class="toctree-l2"><a class="reference internal" href="flask_app.html">app – Flask Application &amp; Routes</a></li>
 <li class="toctree-l2 current"><a class="current reference internal" href="#">pull_data – Pull Data Pipeline</a><ul>
+<li class="toctree-l3"><a class="reference internal" href="#pull_data._normalize_degree"><code class="docutils literal notranslate"><span class="pre">_normalize_degree()</span></code></a></li>
 <li class="toctree-l3"><a class="reference internal" href="#pull_data._standardize_with_llm"><code class="docutils literal notranslate"><span class="pre">_standardize_with_llm()</span></code></a></li>
 <li class="toctree-l3"><a class="reference internal" href="#pull_data._to_applicant_row"><code class="docutils literal notranslate"><span class="pre">_to_applicant_row()</span></code></a></li>
 <li class="toctree-l3"><a class="reference internal" href="#pull_data._load_rows"><code class="docutils literal notranslate"><span class="pre">_load_rows()</span></code></a></li>
+<li class="toctree-l3"><a class="reference internal" href="#pull_data.main"><code class="docutils literal notranslate"><span class="pre">main()</span></code></a></li>
 </ul>
 </li>
 </ul>
@@ -94,7 +97,55 @@
 <h1>pull_data – Pull Data Pipeline<a class="headerlink" href="#pull-data-pull-data-pipeline" title="Link to this heading"></a></h1>
 <p><code class="docutils literal notranslate"><span class="pre">src/flask_website/pull_data.py</span></code> – the script the <strong>Pull Data</strong> button
 runs in a background subprocess.</p>
-<dl class="py function" id="module-pull_data">
+<p id="module-pull_data">Part 9 pipeline: scrape -&gt; clean -&gt; standardize (LLM) -&gt; load.</p>
+<p>Run directly (<code class="docutils literal notranslate"><span class="pre">python</span> <span class="pre">pull_data.py</span></code>) or as a subprocess (this is what the
+Flask app’s “Pull Data” button does – see app.py’s <code class="docutils literal notranslate"><span class="pre">start_pull_data</span></code>).</p>
+<dl class="simple">
+<dt>Steps:</dt><dd><ol class="arabic simple">
+<li><p>scrape.scrape_data()      – fetch newly available Grad Cafe entries.</p></li>
+<li><p>clean.clean_data()    – regex cleaner: turns each raw entry into
+a sparse dict of <em>formatted strings</em> (“GPA 3.70”, “GRE 168”,
+“Added on Feb 17, 2026”, key “US/International”, …).</p></li>
+<li><p>_standardize_with_llm()   – llm_standardize._call_llm() +
+_clean_row(): runs each row’s combined “program” string through a
+local LLM (once per <em>distinct</em> string, then fans the cached result
+out to every row that shares it) to split/standardize it into
+llm-generated-program / llm-generated-university, and at the same
+time derives the rest of the typed fields (date_added as an ISO
+date, status split from “&lt;Type&gt; on &lt;date&gt;”, gpa/gre as floats,
+us_or_international, degree) via the same helper.</p></li>
+<li><p>_to_applicant_row()       – maps each fully-cleaned row onto the
+Applicant table’s actual columns. Rows missing a required
+(NOT NULL) field – program or url – are skipped as “not usable”.</p></li>
+<li><p>Bulk insert with ON CONFLICT (url) DO NOTHING, since url is the
+table’s natural/unique key – this is what makes a Pull Data click
+safe to repeat: already-known entries are silently skipped rather
+than duplicated.</p></li>
+</ol>
+</dd>
+</dl>
+<p>Prints a final <code class="docutils literal notranslate"><span class="pre">PULL_DATA_SUMMARY::{...}</span></code> JSON line that app.py’s
+background watcher thread parses to build the status message shown on
+the webpage.</p>
+<dl class="py function">
+<dt class="sig sig-object py" id="pull_data._normalize_degree">
+<span class="sig-prename descclassname"><span class="pre">pull_data.</span></span><span class="sig-name descname"><span class="pre">_normalize_degree</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">raw</span></span></em><span class="sig-paren">)</span><a class="reference internal" href="../_modules/pull_data.html#_normalize_degree"><span class="viewcode-link"><span class="pre">[source]</span></span></a><a class="headerlink" href="#pull_data._normalize_degree" title="Link to this definition"></a></dt>
+<dd><p>Map a raw degree token onto the exact strings the queries filter on.</p>
+<dl class="field-list simple">
+<dt class="field-odd">Parameters<span class="colon">:</span></dt>
+<dd class="field-odd"><p><strong>raw</strong> (<em>str</em><em> | </em><em>None</em>) – Degree token from <a class="reference internal" href="clean.html#module-clean" title="clean"><code class="xref py py-mod docutils literal notranslate"><span class="pre">clean</span></code></a>, e.g. <code class="docutils literal notranslate"><span class="pre">&quot;Master's&quot;</span></code> or <code class="docutils literal notranslate"><span class="pre">&quot;Ph.D.&quot;</span></code>.</p>
+</dd>
+<dt class="field-even">Returns<span class="colon">:</span></dt>
+<dd class="field-even"><p><code class="docutils literal notranslate"><span class="pre">&quot;Masters&quot;</span></code>, <code class="docutils literal notranslate"><span class="pre">&quot;PhD&quot;</span></code>, … for known variants, the stripped
+input for unknown ones, or <code class="docutils literal notranslate"><span class="pre">None</span></code> if empty.</p>
+</dd>
+<dt class="field-odd">Return type<span class="colon">:</span></dt>
+<dd class="field-odd"><p>str or None</p>
+</dd>
+</dl>
+</dd></dl>
+
+<dl class="py function">
 <dt class="sig sig-object py" id="pull_data._standardize_with_llm">
 <span class="sig-prename descclassname"><span class="pre">pull_data.</span></span><span class="sig-name descname"><span class="pre">_standardize_with_llm</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">cleaned_rows</span></span></em><span class="sig-paren">)</span><a class="reference internal" href="../_modules/pull_data.html#_standardize_with_llm"><span class="viewcode-link"><span class="pre">[source]</span></span></a><a class="headerlink" href="#pull_data._standardize_with_llm" title="Link to this definition"></a></dt>
 <dd><p>Adds llm-generated-program / llm-generated-university to each row
@@ -143,6 +194,23 @@ number of rows actually inserted (i.e. genuinely new).</p>
 <dl class="field-list simple">
 <dt class="field-odd">Parameters<span class="colon">:</span></dt>
 <dd class="field-odd"><p><strong>rows</strong> (<em>list</em><em>[</em><em>dict</em><em>]</em>)</p>
+</dd>
+<dt class="field-even">Return type<span class="colon">:</span></dt>
+<dd class="field-even"><p>int</p>
+</dd>
+</dl>
+</dd></dl>
+
+<dl class="py function">
+<dt class="sig sig-object py" id="pull_data.main">
+<span class="sig-prename descclassname"><span class="pre">pull_data.</span></span><span class="sig-name descname"><span class="pre">main</span></span><span class="sig-paren">(</span><span class="sig-paren">)</span><a class="reference internal" href="../_modules/pull_data.html#main"><span class="viewcode-link"><span class="pre">[source]</span></span></a><a class="headerlink" href="#pull_data.main" title="Link to this definition"></a></dt>
+<dd><p>Run the full Pull Data pipeline: scrape -&gt; clean -&gt; LLM -&gt; insert.</p>
+<p>Prints progress and a final <code class="docutils literal notranslate"><span class="pre">PULL_DATA_SUMMARY::{json}</span></code> line with the
+<code class="docutils literal notranslate"><span class="pre">raw</span></code>, <code class="docutils literal notranslate"><span class="pre">usable</span></code>, <code class="docutils literal notranslate"><span class="pre">inserted</span></code> and <code class="docutils literal notranslate"><span class="pre">duplicates</span></code> counts, which
+<a class="reference internal" href="flask_app.html#app._watch_pull_process" title="app._watch_pull_process"><code class="xref py py-func docutils literal notranslate"><span class="pre">app._watch_pull_process()</span></code></a> parses.</p>
+<dl class="field-list simple">
+<dt class="field-odd">Returns<span class="colon">:</span></dt>
+<dd class="field-odd"><p>Process exit code (<code class="docutils literal notranslate"><span class="pre">0</span></code> on success, non-zero on failure).</p>
 </dd>
 <dt class="field-even">Return type<span class="colon">:</span></dt>
 <dd class="field-even"><p>int</p>

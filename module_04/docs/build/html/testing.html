@@ -19,7 +19,7 @@
     <script src="_static/js/theme.js"></script>
     <link rel="index" title="Index" href="genindex.html" />
     <link rel="search" title="Search" href="search.html" />
-    <link rel="next" title="API Reference" href="api/index.html" />
+    <link rel="next" title="Operational Notes" href="operational.html" />
     <link rel="prev" title="Architecture" href="architecture.html" /> 
 </head>
 
@@ -51,9 +51,12 @@
 <li class="toctree-l2"><a class="reference internal" href="#expected-selectors">Expected selectors</a></li>
 <li class="toctree-l2"><a class="reference internal" href="#fixtures">Fixtures</a></li>
 <li class="toctree-l2"><a class="reference internal" href="#test-doubles">Test doubles</a></li>
+<li class="toctree-l2"><a class="reference internal" href="#waiting-for-a-pull-without-sleep">Waiting for a pull without <code class="docutils literal notranslate"><span class="pre">sleep()</span></code></a></li>
+<li class="toctree-l2"><a class="reference internal" href="#error-path-tests">Error-path tests</a></li>
 <li class="toctree-l2"><a class="reference internal" href="#database-for-db-integration-tests">Database for db / integration tests</a></li>
 </ul>
 </li>
+<li class="toctree-l1"><a class="reference internal" href="operational.html">Operational Notes</a></li>
 </ul>
 <p class="caption" role="heading"><span class="caption-text">API Reference</span></p>
 <ul>
@@ -87,11 +90,12 @@
   <section id="testing-guide">
 <h1>Testing Guide<a class="headerlink" href="#testing-guide" title="Link to this heading"></a></h1>
 <p>The suite lives in <code class="docutils literal notranslate"><span class="pre">module_04/tests</span></code> and uses pytest with pytest-cov.
-<code class="docutils literal notranslate"><span class="pre">pytest.ini</span></code> puts <code class="docutils literal notranslate"><span class="pre">src/flask_website</span></code> on the import path, registers the
-markers and enforces <strong>100 % coverage</strong> of <code class="docutils literal notranslate"><span class="pre">src/flask_website</span></code>:</p>
+<code class="docutils literal notranslate"><span class="pre">pytest.ini</span></code> puts both source folders on the import path, registers the
+markers and enforces <strong>100 % coverage of everything under</strong> <code class="docutils literal notranslate"><span class="pre">src/</span></code>:</p>
 <div class="highlight-ini notranslate"><div class="highlight"><pre><span></span><span class="k">[pytest]</span>
-<span class="na">pythonpath</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="s">src/flask_website</span>
-<span class="na">addopts</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="s">-q --cov=src/flask_website --cov-report=term-missing --cov-fail-under=100</span>
+<span class="na">testpaths</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="s">tests</span>
+<span class="na">pythonpath</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="s">src/flask_website src</span>
+<span class="na">addopts</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="s">-q --cov=src --cov-report=term-missing --cov-fail-under=100</span>
 <span class="na">markers</span><span class="w"> </span><span class="o">=</span>
 <span class="w">    </span><span class="na">web</span><span class="o">:</span><span class="w"> </span><span class="s">Flask route/page tests</span>
 <span class="w">    </span><span class="na">buttons</span><span class="o">:</span><span class="w"> </span><span class="s">&quot;Pull Data&quot;</span><span class="w"> </span><span class="na">and &quot;Update Analysis&quot; behavior</span>
@@ -104,14 +108,14 @@ markers and enforces <strong>100 % coverage</strong> of <code class="docutils li
 <h2>Running marked tests<a class="headerlink" href="#running-marked-tests" title="Link to this heading"></a></h2>
 <p>Run everything from <code class="docutils literal notranslate"><span class="pre">module_04</span></code>:</p>
 <div class="highlight-bash notranslate"><div class="highlight"><pre><span></span>pytest<span class="w">                                                      </span><span class="c1"># full suite</span>
-pytest<span class="w"> </span>-m<span class="w"> </span><span class="s2">&quot;web or buttons or analysis or db or integration&quot;</span><span class="w"> </span><span class="c1"># every marked test</span>
+pytest<span class="w"> </span>-m<span class="w"> </span><span class="s2">&quot;web or buttons or analysis or db or integration&quot;</span><span class="w"> </span><span class="c1"># every test, by marker</span>
 pytest<span class="w"> </span>-m<span class="w"> </span>web<span class="w">                                               </span><span class="c1"># page rendering only</span>
 pytest<span class="w"> </span>-m<span class="w"> </span>buttons<span class="w">                                           </span><span class="c1"># button + pipeline tests</span>
-pytest<span class="w"> </span>-m<span class="w"> </span><span class="s2">&quot;not db and not integration&quot;</span><span class="w">                      </span><span class="c1"># no database needed</span>
+pytest<span class="w"> </span>-m<span class="w"> </span><span class="s2">&quot;not integration&quot;</span><span class="w">                                 </span><span class="c1"># skip end-to-end flows</span>
 </pre></div>
 </div>
-<p>Every test file sets a module-level <code class="docutils literal notranslate"><span class="pre">pytestmark</span></code>, so each test has a
-marker:</p>
+<p>Every test file sets a module-level <code class="docutils literal notranslate"><span class="pre">pytestmark</span></code>, so no test is unmarked
+and the marker expression above runs the entire suite.</p>
 <table class="docutils align-default">
 <colgroup>
 <col style="width: 16.0%" />
@@ -126,40 +130,49 @@ marker:</p>
 </thead>
 <tbody>
 <tr class="row-even"><td><p><code class="docutils literal notranslate"><span class="pre">web</span></code></p></td>
-<td><p><code class="docutils literal notranslate"><span class="pre">test_flask_page.py</span></code></p></td>
-<td><p><code class="docutils literal notranslate"><span class="pre">GET</span> <span class="pre">/</span></code> returns 200, the page has both buttons, the analysis
-headings and <code class="docutils literal notranslate"><span class="pre">Answer:</span></code> labels.</p></td>
+<td><p><code class="docutils literal notranslate"><span class="pre">test_flask_page.py</span></code> (plus <code class="docutils literal notranslate"><span class="pre">TestCreateApp</span></code>, <code class="docutils literal notranslate"><span class="pre">TestMainBlocks</span></code>)</p></td>
+<td><p><code class="docutils literal notranslate"><span class="pre">create_app()</span></code> builds a configured app with every route;
+<code class="docutils literal notranslate"><span class="pre">GET</span> <span class="pre">/analysis</span></code> returns 200 and shows both buttons, “Analysis” and
+<code class="docutils literal notranslate"><span class="pre">Answer:</span></code> labels.</p></td>
 </tr>
 <tr class="row-odd"><td><p><code class="docutils literal notranslate"><span class="pre">buttons</span></code></p></td>
 <td><p><code class="docutils literal notranslate"><span class="pre">test_buttons.py</span></code>, <code class="docutils literal notranslate"><span class="pre">test_app_internals.py</span></code>, <code class="docutils literal notranslate"><span class="pre">test_pull_data.py</span></code>,
 <code class="docutils literal notranslate"><span class="pre">test_scrape.py</span></code>, <code class="docutils literal notranslate"><span class="pre">test_clean.py</span></code>, <code class="docutils literal notranslate"><span class="pre">test_llm_standardize.py</span></code></p></td>
-<td><p><code class="docutils literal notranslate"><span class="pre">POST</span> <span class="pre">/pull-data</span></code> returns 200 and starts a pull, or 409 if one is
-running. <code class="docutils literal notranslate"><span class="pre">POST</span> <span class="pre">/update-analysis</span></code> returns 200 when idle and 409 when
-busy. Also every stage the Pull Data button runs.</p></td>
+<td><p><code class="docutils literal notranslate"><span class="pre">POST</span> <span class="pre">/pull-data</span></code> returns 200 <code class="docutils literal notranslate"><span class="pre">{&quot;ok&quot;:</span> <span class="pre">true}</span></code> and launches the
+loader; 409 <code class="docutils literal notranslate"><span class="pre">{&quot;busy&quot;:</span> <span class="pre">true}</span></code> while a pull runs; 500 and no state
+change if the loader can’t start. <code class="docutils literal notranslate"><span class="pre">POST</span> <span class="pre">/update-analysis</span></code> returns
+200 and re-runs the queries when idle, 409 <code class="docutils literal notranslate"><span class="pre">{&quot;busy&quot;:</span> <span class="pre">true}</span></code> with no
+query when busy. Also every stage the Pull Data button runs.</p></td>
 </tr>
 <tr class="row-even"><td><p><code class="docutils literal notranslate"><span class="pre">analysis</span></code></p></td>
 <td><p><code class="docutils literal notranslate"><span class="pre">test_analysis_format.py</span></code> (plus <code class="docutils literal notranslate"><span class="pre">TestTrendLabels</span></code>)</p></td>
-<td><p>Answer labels are present, and every percentage is shown with two
-decimals.</p></td>
+<td><p>Every answer element starts with <code class="docutils literal notranslate"><span class="pre">Answer:</span></code>, and every percentage
+has exactly two decimals.</p></td>
 </tr>
 <tr class="row-odd"><td><p><code class="docutils literal notranslate"><span class="pre">db</span></code></p></td>
-<td><p><code class="docutils literal notranslate"><span class="pre">test_db_insert.py</span></code>, <code class="docutils literal notranslate"><span class="pre">test_orm_queries.py</span></code> (plus <code class="docutils literal notranslate"><span class="pre">TestModels</span></code>)</p></td>
-<td><p>Rows are inserted by a pull, required fields are non-null,
-re-pulling is idempotent (no duplicate <code class="docutils literal notranslate"><span class="pre">url</span></code> rows), and every ORM
-query compiles against the PostgreSQL dialect.</p></td>
+<td><p><code class="docutils literal notranslate"><span class="pre">test_db_insert.py</span></code>, <code class="docutils literal notranslate"><span class="pre">test_orm_queries.py</span></code>,
+<code class="docutils literal notranslate"><span class="pre">test_load_data.py</span></code>, <code class="docutils literal notranslate"><span class="pre">test_query_data.py</span></code> (plus <code class="docutils literal notranslate"><span class="pre">TestModels</span></code>)</p></td>
+<td><p>A pull inserts rows with every required non-null field; re-pulling
+is idempotent; a failing batch writes nothing; the query function
+returns a dict with the required keys; <code class="docutils literal notranslate"><span class="pre">DATABASE_URL</span></code> handling;
+<code class="docutils literal notranslate"><span class="pre">load_data.py</span></code> and <code class="docutils literal notranslate"><span class="pre">query_data.py</span></code> end to end with a fake
+connection.</p></td>
 </tr>
 <tr class="row-even"><td><p><code class="docutils literal notranslate"><span class="pre">integration</span></code></p></td>
 <td><p><code class="docutils literal notranslate"><span class="pre">test_integration_end_to_end.py</span></code></p></td>
-<td><p>Pull Data → Update Analysis → <code class="docutils literal notranslate"><span class="pre">GET</span> <span class="pre">/</span></code> shows the new rows; repeated
-pulls don’t duplicate.</p></td>
+<td><p>A fake scraper returns several records → <code class="docutils literal notranslate"><span class="pre">POST</span> <span class="pre">/pull-data</span></code> →
+<code class="docutils literal notranslate"><span class="pre">POST</span> <span class="pre">/update-analysis</span></code> → <code class="docutils literal notranslate"><span class="pre">GET</span> <span class="pre">/analysis</span></code> shows the new rows,
+correctly formatted; overlapping pulls don’t create duplicates.</p></td>
 </tr>
 </tbody>
 </table>
 </section>
 <section id="expected-selectors">
 <h2>Expected selectors<a class="headerlink" href="#expected-selectors" title="Link to this heading"></a></h2>
-<p><code class="docutils literal notranslate"><span class="pre">templates/index.html</span></code> has stable <code class="docutils literal notranslate"><span class="pre">id</span></code> attributes that tests and the
-page’s JavaScript rely on. Don’t rename them without updating the tests.</p>
+<p>UI tests find elements with BeautifulSoup using stable <code class="docutils literal notranslate"><span class="pre">data-testid</span></code>
+attributes in <code class="docutils literal notranslate"><span class="pre">templates/index.html</span></code>. The matching <code class="docutils literal notranslate"><span class="pre">id</span></code> attributes are
+used by the page’s JavaScript. Don’t rename either without updating the
+tests.</p>
 <table class="docutils align-default">
 <thead>
 <tr class="row-odd"><th class="head"><p>Element</p></th>
@@ -168,25 +181,21 @@ page’s JavaScript rely on. Don’t rename them without updating the tests.</p>
 </thead>
 <tbody>
 <tr class="row-even"><td><p>Pull Data button</p></td>
-<td><p><code class="docutils literal notranslate"><span class="pre">#pull-data-btn</span></code> (disabled while a pull runs)</p></td>
+<td><p><code class="docutils literal notranslate"><span class="pre">button[data-testid=&quot;pull-data-btn&quot;]</span></code> (also <code class="docutils literal notranslate"><span class="pre">#pull-data-btn</span></code>)</p></td>
 </tr>
 <tr class="row-odd"><td><p>Update Analysis button</p></td>
-<td><p><code class="docutils literal notranslate"><span class="pre">#update-analysis-btn</span></code></p></td>
+<td><p><code class="docutils literal notranslate"><span class="pre">button[data-testid=&quot;update-analysis-btn&quot;]</span></code> (also <code class="docutils literal notranslate"><span class="pre">#update-analysis-btn</span></code>)</p></td>
 </tr>
 <tr class="row-even"><td><p>Pull status message</p></td>
-<td><p><code class="docutils literal notranslate"><span class="pre">#pull-status</span></code> (<code class="docutils literal notranslate"><span class="pre">data-poll=&quot;true&quot;</span></code> while running)</p></td>
+<td><p><code class="docutils literal notranslate"><span class="pre">[data-testid=&quot;pull-status&quot;]</span></code> (<code class="docutils literal notranslate"><span class="pre">data-poll=&quot;true&quot;</span></code> while running)</p></td>
 </tr>
-<tr class="row-odd"><td><p>Required results section</p></td>
-<td><p><code class="docutils literal notranslate"><span class="pre">#required-heading</span></code></p></td>
-</tr>
-<tr class="row-even"><td><p>Original questions section</p></td>
-<td><p><code class="docutils literal notranslate"><span class="pre">#original-heading</span></code></p></td>
-</tr>
-<tr class="row-odd"><td><p>Each answer</p></td>
-<td><p>Text beginning with <code class="docutils literal notranslate"><span class="pre">Answer:</span></code></p></td>
+<tr class="row-odd"><td><p>Each analysis answer</p></td>
+<td><p><code class="docutils literal notranslate"><span class="pre">[data-testid=&quot;analysis-answer&quot;]</span></code>; its text starts with <code class="docutils literal notranslate"><span class="pre">Answer:</span></code></p></td>
 </tr>
 </tbody>
 </table>
+<p>Percentages are checked with the regex <code class="docutils literal notranslate"><span class="pre">(\d+(?:\.\d+)?)%</span></code>; each match
+must fully match <code class="docutils literal notranslate"><span class="pre">\d+\.\d{2}</span></code>.</p>
 </section>
 <section id="fixtures">
 <h2>Fixtures<a class="headerlink" href="#fixtures" title="Link to this heading"></a></h2>
@@ -205,21 +214,22 @@ page’s JavaScript rely on. Don’t rename them without updating the tests.</p>
 <tbody>
 <tr class="row-even"><td><p><code class="docutils literal notranslate"><span class="pre">flask_app_module</span></code></p></td>
 <td><p><code class="docutils literal notranslate"><span class="pre">test_buttons.py</span></code>, <code class="docutils literal notranslate"><span class="pre">test_integration_end_to_end.py</span></code></p></td>
-<td><p>The imported <code class="docutils literal notranslate"><span class="pre">app</span></code> module, with its pull state reset</p></td>
+<td><p>The imported <code class="docutils literal notranslate"><span class="pre">app</span></code> module, with its pull state reset (and, for
+integration, the test rows cleaned up)</p></td>
 </tr>
 <tr class="row-odd"><td><p><code class="docutils literal notranslate"><span class="pre">app</span></code></p></td>
 <td><p><code class="docutils literal notranslate"><span class="pre">test_flask_page.py</span></code>, <code class="docutils literal notranslate"><span class="pre">test_buttons.py</span></code>,
 <code class="docutils literal notranslate"><span class="pre">test_analysis_format.py</span></code>, <code class="docutils literal notranslate"><span class="pre">test_integration_end_to_end.py</span></code></p></td>
-<td><p>A testable Flask app with real routes and <code class="docutils literal notranslate"><span class="pre">TESTING=True</span></code>; the
-data layer is stubbed unless the test is an integration test</p></td>
+<td><p><code class="docutils literal notranslate"><span class="pre">create_app({&quot;TESTING&quot;:</span> <span class="pre">True})</span></code>; the data layer is stubbed unless
+the test is an integration test</p></td>
 </tr>
 <tr class="row-even"><td><p><code class="docutils literal notranslate"><span class="pre">client</span></code></p></td>
 <td><p>same files as <code class="docutils literal notranslate"><span class="pre">app</span></code></p></td>
-<td><p><code class="docutils literal notranslate"><span class="pre">app.test_client()</span></code></p></td>
+<td><p><code class="docutils literal notranslate"><span class="pre">app.test_client()</span></code> – no browser is used</p></td>
 </tr>
 <tr class="row-odd"><td><p><code class="docutils literal notranslate"><span class="pre">page_html</span></code></p></td>
 <td><p><code class="docutils literal notranslate"><span class="pre">test_analysis_format.py</span></code></p></td>
-<td><p>The rendered HTML of <code class="docutils literal notranslate"><span class="pre">GET</span> <span class="pre">/</span></code> with canned query results</p></td>
+<td><p>The rendered HTML of <code class="docutils literal notranslate"><span class="pre">GET</span> <span class="pre">/analysis</span></code> with canned query results</p></td>
 </tr>
 <tr class="row-even"><td><p><code class="docutils literal notranslate"><span class="pre">idle_state</span></code> (autouse)</p></td>
 <td><p><code class="docutils literal notranslate"><span class="pre">test_app_internals.py</span></code></p></td>
@@ -228,13 +238,18 @@ data layer is stubbed unless the test is an integration test</p></td>
 <tr class="row-odd"><td><p><code class="docutils literal notranslate"><span class="pre">db_session</span></code></p></td>
 <td><p><code class="docutils literal notranslate"><span class="pre">test_db_insert.py</span></code></p></td>
 <td><p>A real SQLAlchemy session; creates the table if needed, deletes
-test rows afterwards, and <strong>skips</strong> if Postgres is unreachable</p></td>
+test rows afterwards, and <strong>skips</strong> if PostgreSQL is unreachable</p></td>
 </tr>
-<tr class="row-even"><td><p><code class="docutils literal notranslate"><span class="pre">no_real_model</span></code> (autouse)</p></td>
+<tr class="row-even"><td><p><code class="docutils literal notranslate"><span class="pre">fake_connect</span></code></p></td>
+<td><p><code class="docutils literal notranslate"><span class="pre">test_load_data.py</span></code>, <code class="docutils literal notranslate"><span class="pre">test_query_data.py</span></code></p></td>
+<td><p>Replaces <code class="docutils literal notranslate"><span class="pre">psycopg.connect</span></code> with a fake connection that records
+queries, commits, rollbacks and closes</p></td>
+</tr>
+<tr class="row-odd"><td><p><code class="docutils literal notranslate"><span class="pre">no_real_model</span></code> (autouse)</p></td>
 <td><p><code class="docutils literal notranslate"><span class="pre">test_llm_standardize.py</span></code></p></td>
 <td><p>Replaces model download/loading with fakes so no LLM is loaded</p></td>
 </tr>
-<tr class="row-odd"><td><p><code class="docutils literal notranslate"><span class="pre">fake_call_llm</span></code></p></td>
+<tr class="row-even"><td><p><code class="docutils literal notranslate"><span class="pre">fake_call_llm</span></code></p></td>
 <td><p><code class="docutils literal notranslate"><span class="pre">test_llm_standardize.py</span></code></p></td>
 <td><p>A deterministic stand-in for <code class="docutils literal notranslate"><span class="pre">llm_standardize._call_llm</span></code></p></td>
 </tr>
@@ -267,41 +282,71 @@ formatting assertions deterministic</p></td>
 <tr class="row-even"><td><p><code class="docutils literal notranslate"><span class="pre">_FakePullProcess</span></code> / <code class="docutils literal notranslate"><span class="pre">_FakeScraperProcess</span></code> / <code class="docutils literal notranslate"><span class="pre">_FakeProc</span></code></p></td>
 <td><p><code class="docutils literal notranslate"><span class="pre">subprocess.Popen</span></code> in <a class="reference internal" href="api/flask_app.html#app.start_pull_data" title="app.start_pull_data"><code class="xref py py-func docutils literal notranslate"><span class="pre">app.start_pull_data()</span></code></a>. They yield canned
 output ending in <code class="docutils literal notranslate"><span class="pre">PULL_DATA_SUMMARY::{...}</span></code> and a chosen exit code.
+<code class="docutils literal notranslate"><span class="pre">_FakeScraperProcess</span></code> is the fake scraper: it loads its records into
+the test database with <code class="docutils literal notranslate"><span class="pre">pull_data</span></code>’s real loader.
 <code class="docutils literal notranslate"><span class="pre">_ExplodingProc</span></code> makes the watcher itself fail.</p></td>
 </tr>
-<tr class="row-odd"><td><p><code class="docutils literal notranslate"><span class="pre">_Response</span></code> / <code class="docutils literal notranslate"><span class="pre">_Headers</span></code></p></td>
-<td><p><code class="docutils literal notranslate"><span class="pre">urllib.request.urlopen</span></code> in <code class="docutils literal notranslate"><span class="pre">test_scrape.py</span></code>; <code class="docutils literal notranslate"><span class="pre">scrape.time.sleep</span></code>
-is patched out too</p></td>
+<tr class="row-odd"><td><p><code class="docutils literal notranslate"><span class="pre">_FakeConnection</span></code> / <code class="docutils literal notranslate"><span class="pre">_FakeCursor</span></code></p></td>
+<td><p><code class="docutils literal notranslate"><span class="pre">psycopg.connect</span></code> for <code class="docutils literal notranslate"><span class="pre">load_data.py</span></code> and <code class="docutils literal notranslate"><span class="pre">query_data.py</span></code></p></td>
 </tr>
-<tr class="row-even"><td><p><code class="docutils literal notranslate"><span class="pre">fake_scrape</span></code> / <code class="docutils literal notranslate"><span class="pre">fake_clean</span></code> / <code class="docutils literal notranslate"><span class="pre">_FakeSession</span></code></p></td>
+<tr class="row-even"><td><p><code class="docutils literal notranslate"><span class="pre">_Response</span></code> / <code class="docutils literal notranslate"><span class="pre">_Headers</span></code></p></td>
+<td><p><code class="docutils literal notranslate"><span class="pre">urllib.request.urlopen</span></code> in <code class="docutils literal notranslate"><span class="pre">test_scrape.py</span></code>; <code class="docutils literal notranslate"><span class="pre">scrape.time.sleep</span></code>
+is replaced with a list so no real delay happens</p></td>
+</tr>
+<tr class="row-odd"><td><p><code class="docutils literal notranslate"><span class="pre">fake_scrape</span></code> / <code class="docutils literal notranslate"><span class="pre">fake_clean</span></code> / <code class="docutils literal notranslate"><span class="pre">_FakeSession</span></code></p></td>
 <td><p>Each stage of <code class="docutils literal notranslate"><span class="pre">pull_data.main</span></code> in <code class="docutils literal notranslate"><span class="pre">test_pull_data.py</span></code></p></td>
 </tr>
-<tr class="row-odd"><td><p><code class="docutils literal notranslate"><span class="pre">_FakeSession</span></code> (<code class="docutils literal notranslate"><span class="pre">test_orm_queries.py</span></code>)</p></td>
+<tr class="row-even"><td><p><code class="docutils literal notranslate"><span class="pre">_FakeSession</span></code> (<code class="docutils literal notranslate"><span class="pre">test_orm_queries.py</span></code>)</p></td>
 <td><p>Compiles every statement with the real PostgreSQL dialect and returns
 canned rows, so a malformed query still fails</p></td>
 </tr>
-<tr class="row-even"><td><p><code class="docutils literal notranslate"><span class="pre">_FakeLlama</span></code> / <code class="docutils literal notranslate"><span class="pre">_FakeExecutor</span></code></p></td>
+<tr class="row-odd"><td><p><code class="docutils literal notranslate"><span class="pre">_FakeLlama</span></code> / <code class="docutils literal notranslate"><span class="pre">_FakeExecutor</span></code></p></td>
 <td><p><code class="docutils literal notranslate"><span class="pre">llama_cpp.Llama</span></code> and <code class="docutils literal notranslate"><span class="pre">ProcessPoolExecutor</span></code> (run serially
 in-process)</p></td>
 </tr>
 </tbody>
 </table>
-<p>Example:</p>
+</section>
+<section id="waiting-for-a-pull-without-sleep">
+<h2>Waiting for a pull without <code class="docutils literal notranslate"><span class="pre">sleep()</span></code><a class="headerlink" href="#waiting-for-a-pull-without-sleep" title="Link to this heading"></a></h2>
+<p>A pull finishes on a background watcher thread. Instead of polling with
+<code class="docutils literal notranslate"><span class="pre">time.sleep()</span></code>, tests call <a class="reference internal" href="api/flask_app.html#app.wait_for_pull" title="app.wait_for_pull"><code class="xref py py-func docutils literal notranslate"><span class="pre">app.wait_for_pull()</span></code></a>, which joins that
+thread and returns <code class="docutils literal notranslate"><span class="pre">True</span></code> once the app is idle:</p>
 <div class="highlight-python notranslate"><div class="highlight"><pre><span></span><span class="n">pytestmark</span> <span class="o">=</span> <span class="n">pytest</span><span class="o">.</span><span class="n">mark</span><span class="o">.</span><span class="n">buttons</span>
 
-<span class="k">def</span><span class="w"> </span><span class="nf">test_update_blocked_while_pulling</span><span class="p">(</span><span class="n">client</span><span class="p">,</span> <span class="n">flask_app_module</span><span class="p">):</span>
-    <span class="n">flask_app_module</span><span class="o">.</span><span class="n">_pull_state</span><span class="p">[</span><span class="s2">&quot;running&quot;</span><span class="p">]</span> <span class="o">=</span> <span class="kc">True</span>
-    <span class="n">resp</span> <span class="o">=</span> <span class="n">client</span><span class="o">.</span><span class="n">post</span><span class="p">(</span><span class="s2">&quot;/update-analysis&quot;</span><span class="p">)</span>
-    <span class="k">assert</span> <span class="n">resp</span><span class="o">.</span><span class="n">status_code</span> <span class="o">==</span> <span class="mi">409</span>
+<span class="k">def</span><span class="w"> </span><span class="nf">test_failed_pull_is_reported</span><span class="p">(</span><span class="n">flask_app_module</span><span class="p">,</span> <span class="n">client</span><span class="p">,</span> <span class="n">monkeypatch</span><span class="p">):</span>
+    <span class="n">monkeypatch</span><span class="o">.</span><span class="n">setattr</span><span class="p">(</span><span class="n">flask_app_module</span><span class="o">.</span><span class="n">subprocess</span><span class="p">,</span> <span class="s2">&quot;Popen&quot;</span><span class="p">,</span>
+                        <span class="k">lambda</span> <span class="o">*</span><span class="n">a</span><span class="p">,</span> <span class="o">**</span><span class="n">k</span><span class="p">:</span> <span class="n">_FakePullProcess</span><span class="p">([</span><span class="s2">&quot;boom&quot;</span><span class="p">],</span> <span class="n">returncode</span><span class="o">=</span><span class="mi">1</span><span class="p">))</span>
+    <span class="k">assert</span> <span class="n">client</span><span class="o">.</span><span class="n">post</span><span class="p">(</span><span class="s2">&quot;/pull-data&quot;</span><span class="p">)</span><span class="o">.</span><span class="n">status_code</span> <span class="o">==</span> <span class="mi">200</span>
+    <span class="k">assert</span> <span class="n">flask_app_module</span><span class="o">.</span><span class="n">wait_for_pull</span><span class="p">(</span><span class="mi">5</span><span class="p">)</span>
+    <span class="k">assert</span> <span class="n">client</span><span class="o">.</span><span class="n">get</span><span class="p">(</span><span class="s2">&quot;/pull-data/status&quot;</span><span class="p">)</span><span class="o">.</span><span class="n">get_json</span><span class="p">()[</span><span class="s2">&quot;success&quot;</span><span class="p">]</span> <span class="ow">is</span> <span class="kc">False</span>
 </pre></div>
 </div>
+<p>Busy state is set directly (<code class="docutils literal notranslate"><span class="pre">_pull_state[&quot;running&quot;]</span> <span class="pre">=</span> <span class="pre">True</span></code>), so the 409
+paths are tested without starting a thread.</p>
+</section>
+<section id="error-path-tests">
+<h2>Error-path tests<a class="headerlink" href="#error-path-tests" title="Link to this heading"></a></h2>
+<ul class="simple">
+<li><p><code class="docutils literal notranslate"><span class="pre">TestPullDataErrors</span></code> – the loader can’t start: <code class="docutils literal notranslate"><span class="pre">POST</span> <span class="pre">/pull-data</span></code>
+returns 500 <code class="docutils literal notranslate"><span class="pre">{&quot;ok&quot;:</span> <span class="pre">false}</span></code> and the app is not left busy. A pull that
+exits non-zero is reported with <code class="docutils literal notranslate"><span class="pre">success:</span> <span class="pre">false</span></code>.</p></li>
+<li><p><code class="docutils literal notranslate"><span class="pre">TestNoPartialWrites</span></code> – one invalid row in a batch raises an
+<code class="docutils literal notranslate"><span class="pre">IntegrityError</span></code>; after rollback none of that batch’s rows exist.</p></li>
+<li><p><code class="docutils literal notranslate"><span class="pre">test_database_failure_returns_1</span></code> – <code class="docutils literal notranslate"><span class="pre">pull_data.main</span></code> returns 1
+and never commits when the database is down.</p></li>
+</ul>
 </section>
 <section id="database-for-db-integration-tests">
 <h2>Database for db / integration tests<a class="headerlink" href="#database-for-db-integration-tests" title="Link to this heading"></a></h2>
-<p>Point the <code class="docutils literal notranslate"><span class="pre">PG*</span></code> variables at a <strong>test</strong> database before running these
-tests. Test rows use a dedicated URL prefix and are deleted afterwards, but
-a separate database is still safer. In GitHub Actions, run a
-<code class="docutils literal notranslate"><span class="pre">postgres</span></code> service container and export the same variables.</p>
+<p>Point <code class="docutils literal notranslate"><span class="pre">DATABASE_URL</span></code> at a <strong>test</strong> database before running the suite:</p>
+<div class="highlight-bash notranslate"><div class="highlight"><pre><span></span><span class="nb">export</span><span class="w"> </span><span class="nv">DATABASE_URL</span><span class="o">=</span><span class="s2">&quot;postgresql://postgres:postgres@localhost:5432/gradcafe_test&quot;</span>
+</pre></div>
+</div>
+<p>Test rows use a dedicated <code class="docutils literal notranslate"><span class="pre">https://test.invalid/...</span></code> URL prefix and are
+deleted afterwards, but a separate database is still safer. In GitHub
+Actions, <code class="docutils literal notranslate"><span class="pre">.github/workflows/tests.yml</span></code> starts a <code class="docutils literal notranslate"><span class="pre">postgres</span></code> service
+container and exports the same variable.</p>
 </section>
 </section>
 
@@ -310,7 +355,7 @@ a separate database is still safer. In GitHub Actions, run a
           </div>
           <footer><div class="rst-footer-buttons" role="navigation" aria-label="Footer">
         <a href="architecture.html" class="btn btn-neutral float-left" title="Architecture" accesskey="p" rel="prev"><span class="fa fa-arrow-circle-left" aria-hidden="true"></span> Previous</a>
-        <a href="api/index.html" class="btn btn-neutral float-right" title="API Reference" accesskey="n" rel="next">Next <span class="fa fa-arrow-circle-right" aria-hidden="true"></span></a>
+        <a href="operational.html" class="btn btn-neutral float-right" title="Operational Notes" accesskey="n" rel="next">Next <span class="fa fa-arrow-circle-right" aria-hidden="true"></span></a>
     </div>
 
   <hr/>
