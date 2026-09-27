@@ -2,7 +2,7 @@ Name: Shane Battles (sbattl15)
 Module Info: Module 4 Assignment: Testing and Documentation
 
 Documentation (Sphinx, hosted on Read the Docs):
-https://<your-project-slug>.readthedocs.io/en/latest/
+https://sbattl15-test-docs.readthedocs.io/en/latest/
 
 The documentation source is in module_04/docs/. To build it locally:
     pip install -r docs/requirements.txt
