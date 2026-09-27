@@ -7,7 +7,7 @@ on:
 
 jobs:
   test:
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
 
     # Start a PostgreSQL server for the test run
     services:
@@ -25,7 +25,7 @@ jobs:
           --health-timeout 5s
           --health-retries 5
 
-    # Test database environment (add any other variable names your code reads)
+    # Test database environment
     env:
       DATABASE_URL: postgresql://postgres:postgres@localhost:5432/test_db
       PGHOST: localhost
@@ -38,12 +38,14 @@ jobs:
 
     steps:
       - name: Check out repository
-        uses: actions/checkout@v4
+        uses: actions/checkout@v5
 
       - name: Set up Python
-        uses: actions/setup-python@v5
+        uses: actions/setup-python@v6
         with:
           python-version: "3.12"
+          cache: pip
+          cache-dependency-path: module_04/requirements.txt
 
       - name: Install dependencies
         run: |
@@ -55,14 +57,16 @@ jobs:
           fi
           pip install pytest pytest-cov "psycopg[binary]"
 
-      - name: Wait for PostgreSQL
-        run: |
-          sudo apt-get update && sudo apt-get install -y postgresql-client
-          until pg_isready -h localhost -p 5432 -U postgres; do sleep 1; done
-
       - name: Initialize database (load_data.py)
         working-directory: module_04
-        run: python src/load_data.py
+        run: |
+          JSON_FILE=$(find . -name llm_extend_applicant_data.json | head -n 1)
+          if [ -z "$JSON_FILE" ]; then
+            echo "::error::llm_extend_applicant_data.json not found under module_04 - is it committed (and not in .gitignore)?"
+            exit 1
+          fi
+          echo "Loading $JSON_FILE"
+          python src/load_data.py --json-file "$JSON_FILE"
 
       - name: Run full pytest suite with coverage
         run: |
@@ -74,5 +78,6 @@ jobs:
             echo "Using module_04/pytest.ini"
             pytest -c module_04/pytest.ini --rootdir=module_04 -m "$MARKS" module_04
           else
-            echo "pytest.ini not found" && exit 1
+            echo "::error::pytest.ini not found at repo root or in module_04"
+            exit 1
           fi
