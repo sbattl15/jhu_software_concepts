@@ -1,3 +1,20 @@
+"""Clean raw GradCafe scrape output into structured applicant records.
+
+This module is the **transform** stage of the ETL pipeline. It takes the
+raw text fields written by :mod:`scrape` and, using regular expressions,
+splits them into structured fields: program, degree, comments, date added,
+status, term, applicant nationality, GRE Quant/Verbal/AW and GPA.
+
+Output field names match what :mod:`load_data` expects (``program``,
+``comments``, ``date_added``, ``url``, ``status``, ``term``,
+``US/International``, ``GRE``, ``GRE V``, ``GRE AW``, ``GPA``, ``Degree``).
+Empty fields are omitted from each record (except ``comments``).
+
+Example::
+
+    python clean.py -i applicant_data.json -o cleaned_applicant_data_new.json
+"""
+
 from __future__ import annotations
 
 import argparse
@@ -14,6 +31,12 @@ from pathlib import Path
 def _clean_text(
     value: object,
 ) -> str:
+    """Collapse runs of whitespace to single spaces and strip.
+
+    :param value: Any value; converted with :func:`str`.
+    :returns: Cleaned text, or ``""`` for ``None``.
+    :rtype: str
+    """
 
     if value is None:
         return ""
@@ -60,6 +83,12 @@ _META_PREFIX_RE = re.compile(
 def _parse_term(
     text: str,
 ) -> str:
+    """Extract the intended start term, e.g. ``"Fall 2026"``.
+
+    :param text: Raw metadata text.
+    :returns: Term with the season capitalised, or ``""`` if none found.
+    :rtype: str
+    """
 
     match = re.search(
         r"\b(Spring|Summer|Fall|Winter)\s+(\d{4})\b",
@@ -76,6 +105,12 @@ def _parse_term(
 def _parse_student_type(
     text: str,
 ) -> str:
+    """Classify the applicant as ``"International"`` or ``"American"``.
+
+    :param text: Raw metadata text.
+    :returns: ``"International"``, ``"American"``, or ``""`` if neither appears.
+    :rtype: str
+    """
 
     if re.search(r"\bInternational\b", text, re.IGNORECASE):
         return "International"
@@ -89,6 +124,12 @@ def _parse_student_type(
 def _parse_gpa(
     text: str,
 ) -> str:
+    """Extract the GPA as a normalised ``"GPA <value>"`` string.
+
+    :param text: Raw metadata text.
+    :returns: e.g. ``"GPA 3.70"``, or ``""`` if no GPA is present.
+    :rtype: str
+    """
 
     match = re.search(
         r"\bGPA\s*[:\-]?\s*([0-4](?:\.\d{1,3})?)\b",
@@ -127,6 +168,12 @@ _GRE_AW_RE = re.compile(
 def _parse_gre(
     text: str,
 ) -> str:
+    """Extract the GRE Quantitative score as ``"GRE <n>"``.
+
+    :param text: Raw metadata text.
+    :returns: e.g. ``"GRE 168"``, or ``""``.
+    :rtype: str
+    """
 
     match = _GRE_Q_RE.search(text)
 
@@ -136,6 +183,12 @@ def _parse_gre(
 def _parse_gre_v(
     text: str,
 ) -> str:
+    """Extract the GRE Verbal score as ``"GRE V <n>"``.
+
+    :param text: Raw metadata text.
+    :returns: e.g. ``"GRE V 163"``, or ``""``.
+    :rtype: str
+    """
 
     match = _GRE_V_RE.search(text)
 
@@ -145,6 +198,12 @@ def _parse_gre_v(
 def _parse_gre_aw(
     text: str,
 ) -> str:
+    """Extract the GRE Analytical Writing score as ``"GRE AW <n>"``.
+
+    :param text: Raw metadata text.
+    :returns: e.g. ``"GRE AW 4.50"``, or ``""``.
+    :rtype: str
+    """
 
     match = _GRE_AW_RE.search(text)
 
@@ -154,8 +213,15 @@ def _parse_gre_aw(
 def _extract_degree(
     program_text: str,
 ) -> tuple[str, str]:
-    """Split the trailing degree token (Masters/PhD/...) off the raw
-    program text. Returns (program_name_without_degree, degree)."""
+    """Split the trailing degree token (Masters/PhD/...) off the program text.
+
+    :param program_text: Raw program text, e.g.
+        ``"Speech Language Pathology Masters"``.
+    :returns: ``(program_name, degree)``, e.g.
+        ``("Speech Language Pathology", "Masters")``. ``degree`` is ``""``
+        if no recognised suffix is found.
+    :rtype: tuple[str, str]
+    """
 
     match = _DEGREE_SUFFIX_RE.search(program_text)
 
@@ -171,8 +237,16 @@ def _extract_degree(
 def _extract_comment(
     meta_text: str,
 ) -> str:
-    """Strip the leading structured block (status/date/term/type/GRE/GPA)
-    off the raw meta text, leaving only the genuine free-text comment."""
+    """Strip the structured prefix off the meta text, leaving the comment.
+
+    The prefix (status/date/term/type/GRE/GPA) is matched by
+    ``_META_PREFIX_RE``; whatever remains is the applicant's free-text
+    comment.
+
+    :param meta_text: Raw metadata/comment text.
+    :returns: The free-text comment, possibly ``""``.
+    :rtype: str
+    """
 
     match = _META_PREFIX_RE.match(meta_text)
     residue = meta_text[match.end():] if match else meta_text
@@ -187,11 +261,23 @@ def _extract_comment(
 def clean_data(
     raw_entries: list[dict],
 ) -> list[dict]:
-    """
-    Turn a list of raw scraped entries (raw_school_text, raw_program_text,
-    raw_comment_text, raw_added_on_text, raw_decision_text, raw_meta_text,
-    url) into a list of cleaned, structured entries ready for the
-    llm-generated-program / llm-generated-university tagging step.
+    """Turn raw scraped entries into cleaned, structured entries.
+
+    Input entries use the keys produced by :func:`scrape._parse_page`
+    (``raw_school_text``, ``raw_program_text``, ``raw_comment_text``,
+    ``raw_added_on_text``, ``raw_decision_text``, ``raw_meta_text``,
+    ``url``). Output entries are ready for the
+    ``llm-generated-program`` / ``llm-generated-university`` tagging step
+    and, after that, :mod:`load_data`.
+
+    :param raw_entries: Raw scraper output.
+    :returns: One cleaned dictionary per input entry, in the same order.
+    :rtype: list[dict]
+
+    >>> clean_data([{"raw_school_text": "MIT",
+    ...              "raw_program_text": "Computer Science PhD",
+    ...              "raw_meta_text": "Accepted Fall 2026 International GPA 3.90"}])[0]["Degree"]
+    'PhD'
     """
 
     cleaned: list[dict] = []
@@ -297,6 +383,13 @@ def clean_data(
 def load_data(
     in_path: str,
 ) -> list[dict]:
+    """Load raw scraper JSON from disk.
+
+    :param in_path: Path to the input JSON file.
+    :returns: The decoded list of raw entries.
+    :rtype: list[dict]
+    :raises FileNotFoundError: If ``in_path`` does not exist.
+    """
 
     path = Path(in_path)
 
@@ -317,6 +410,12 @@ def save_data(
     entries: list[dict],
     out_path: str,
 ) -> None:
+    """Write cleaned entries to ``out_path`` as pretty-printed UTF-8 JSON.
+
+    :param entries: Cleaned entries.
+    :param out_path: Destination file path.
+    :raises RuntimeError: If the file cannot be written.
+    """
 
     try:
 
@@ -349,6 +448,14 @@ def save_data(
 # ============================================================================
 
 def main() -> int:
+    """Command-line entry point.
+
+    Options: ``--input/-i`` (default ``applicant_data.json``) and
+    ``--output/-o`` (default ``cleaned_applicant_data_new.json``).
+
+    :returns: ``0`` on success or empty input, ``1`` if the input is missing.
+    :rtype: int
+    """
 
     parser = argparse.ArgumentParser(
         description=(

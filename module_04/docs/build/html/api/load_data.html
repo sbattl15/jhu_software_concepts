@@ -1,0 +1,344 @@
+
+
+<!DOCTYPE html>
+<html class="writer-html5" lang="en" data-content_root="../">
+<head>
+  <meta charset="utf-8" /><meta name="viewport" content="width=device-width, initial-scale=1" />
+
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>load_data – Load &mdash; GradCafe Analytics</title>
+      <link rel="stylesheet" type="text/css" href="../_static/pygments.css?v=b86133f3" />
+      <link rel="stylesheet" type="text/css" href="../_static/css/theme.css?v=9edc463e" />
+
+  
+      <script src="../_static/jquery.js?v=5d32c60e"></script>
+      <script src="../_static/_sphinx_javascript_frameworks_compat.js?v=2cd50e6c"></script>
+      <script src="../_static/documentation_options.js?v=f2a433a1"></script>
+      <script src="../_static/doctools.js?v=fd6eb6e6"></script>
+      <script src="../_static/sphinx_highlight.js?v=6ffebe34"></script>
+    <script src="../_static/js/theme.js"></script>
+    <link rel="index" title="Index" href="../genindex.html" />
+    <link rel="search" title="Search" href="../search.html" />
+    <link rel="next" title="query_data – SQL Analysis" href="query_data.html" />
+    <link rel="prev" title="clean – Transform" href="clean.html" /> 
+</head>
+
+<body class="wy-body-for-nav"> 
+  <div class="wy-grid-for-nav">
+    <nav data-toggle="wy-nav-shift" class="wy-nav-side">
+      <div class="wy-side-scroll">
+        <div class="wy-side-nav-search" >
+
+          
+          
+          <a href="../index.html" class="icon icon-home">
+            GradCafe Analytics
+          </a>
+<div role="search">
+  <form id="rtd-search-form" class="wy-form" action="../search.html" method="get">
+    <input type="text" name="q" placeholder="Search docs" aria-label="Search docs" />
+    <input type="hidden" name="check_keywords" value="yes" />
+    <input type="hidden" name="area" value="default" />
+  </form>
+</div>
+        </div><div class="wy-menu wy-menu-vertical" data-spy="affix" role="navigation" aria-label="Navigation menu">
+              <p class="caption" role="heading"><span class="caption-text">Guide</span></p>
+<ul>
+<li class="toctree-l1"><a class="reference internal" href="../overview.html">Overview &amp; Setup</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../architecture.html">Architecture</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../testing.html">Testing Guide</a></li>
+</ul>
+<p class="caption" role="heading"><span class="caption-text">API Reference</span></p>
+<ul class="current">
+<li class="toctree-l1 current"><a class="reference internal" href="index.html">API Reference</a><ul class="current">
+<li class="toctree-l2"><a class="reference internal" href="scrape.html">scrape – Extract</a></li>
+<li class="toctree-l2"><a class="reference internal" href="clean.html">clean – Transform</a></li>
+<li class="toctree-l2 current"><a class="current reference internal" href="#">load_data – Load</a><ul>
+<li class="toctree-l3"><a class="reference internal" href="#load_data.parse_date_added"><code class="docutils literal notranslate"><span class="pre">parse_date_added()</span></code></a></li>
+<li class="toctree-l3"><a class="reference internal" href="#load_data.parse_gpa"><code class="docutils literal notranslate"><span class="pre">parse_gpa()</span></code></a></li>
+<li class="toctree-l3"><a class="reference internal" href="#load_data.parse_score"><code class="docutils literal notranslate"><span class="pre">parse_score()</span></code></a></li>
+<li class="toctree-l3"><a class="reference internal" href="#load_data.clean_text"><code class="docutils literal notranslate"><span class="pre">clean_text()</span></code></a></li>
+<li class="toctree-l3"><a class="reference internal" href="#load_data.load_records"><code class="docutils literal notranslate"><span class="pre">load_records()</span></code></a></li>
+<li class="toctree-l3"><a class="reference internal" href="#load_data.to_row"><code class="docutils literal notranslate"><span class="pre">to_row()</span></code></a></li>
+<li class="toctree-l3"><a class="reference internal" href="#load_data.create_database_if_missing"><code class="docutils literal notranslate"><span class="pre">create_database_if_missing()</span></code></a></li>
+<li class="toctree-l3"><a class="reference internal" href="#load_data.CREATE_TABLE_SQL"><code class="docutils literal notranslate"><span class="pre">CREATE_TABLE_SQL</span></code></a></li>
+<li class="toctree-l3"><a class="reference internal" href="#load_data.MIGRATE_SQL"><code class="docutils literal notranslate"><span class="pre">MIGRATE_SQL</span></code></a></li>
+<li class="toctree-l3"><a class="reference internal" href="#load_data.INSERT_SQL"><code class="docutils literal notranslate"><span class="pre">INSERT_SQL</span></code></a></li>
+<li class="toctree-l3"><a class="reference internal" href="#load_data.main"><code class="docutils literal notranslate"><span class="pre">main()</span></code></a></li>
+</ul>
+</li>
+<li class="toctree-l2"><a class="reference internal" href="query_data.html">query_data – SQL Analysis</a></li>
+<li class="toctree-l2"><a class="reference internal" href="flask_app.html">app – Flask Application &amp; Routes</a></li>
+<li class="toctree-l2"><a class="reference internal" href="pull_data.html">pull_data – Pull Data Pipeline</a></li>
+</ul>
+</li>
+</ul>
+
+        </div>
+      </div>
+    </nav>
+
+    <section data-toggle="wy-nav-shift" class="wy-nav-content-wrap"><nav class="wy-nav-top" aria-label="Mobile navigation menu" >
+          <i data-toggle="wy-nav-top" class="fa fa-bars"></i>
+          <a href="../index.html">GradCafe Analytics</a>
+      </nav>
+
+      <div class="wy-nav-content">
+        <div class="rst-content">
+          <div role="navigation" aria-label="Page navigation">
+  <ul class="wy-breadcrumbs">
+      <li><a href="../index.html" class="icon icon-home" aria-label="Home"></a></li>
+          <li class="breadcrumb-item"><a href="index.html">API Reference</a></li>
+      <li class="breadcrumb-item active">load_data – Load</li>
+      <li class="wy-breadcrumbs-aside">
+            <a href="../_sources/api/load_data.rst.txt" rel="nofollow"> View page source</a>
+      </li>
+  </ul>
+  <hr/>
+</div>
+          <div role="main" class="document" itemscope="itemscope" itemtype="http://schema.org/Article">
+           <div itemprop="articleBody">
+             
+  <section id="load-data-load">
+<h1>load_data – Load<a class="headerlink" href="#load-data-load" title="Link to this heading"></a></h1>
+<p><code class="docutils literal notranslate"><span class="pre">src/load_data.py</span></code></p>
+<p id="module-load_data">Load cleaned GradCafe applicant data into PostgreSQL.</p>
+<p>This module is the <strong>database-loading</strong> stage of the ETL pipeline. It reads
+the LLM-extended JSON produced by the cleaning step, converts free-form
+string fields (<code class="docutils literal notranslate"><span class="pre">&quot;Added</span> <span class="pre">on</span> <span class="pre">Feb</span> <span class="pre">17,</span> <span class="pre">2026&quot;</span></code>, <code class="docutils literal notranslate"><span class="pre">&quot;GPA</span> <span class="pre">3.85&quot;</span></code>, <code class="docutils literal notranslate"><span class="pre">&quot;GRE</span> <span class="pre">V</span> <span class="pre">160&quot;</span></code>)
+into typed Python values, and bulk-upserts them into the <code class="docutils literal notranslate"><span class="pre">applicants</span></code>
+table.</p>
+<p>Connection settings come from the standard libpq environment variables
+(<code class="docutils literal notranslate"><span class="pre">PGDATABASE</span></code>, <code class="docutils literal notranslate"><span class="pre">PGUSER</span></code>, <code class="docutils literal notranslate"><span class="pre">PGPASSWORD</span></code>, <code class="docutils literal notranslate"><span class="pre">PGHOST</span></code>, <code class="docutils literal notranslate"><span class="pre">PGPORT</span></code>) and can be
+overridden on the command line.</p>
+<p>Example:</p>
+<div class="highlight-default notranslate"><div class="highlight"><pre><span></span><span class="n">python</span> <span class="n">load_data</span><span class="o">.</span><span class="n">py</span> <span class="o">--</span><span class="n">json</span><span class="o">-</span><span class="n">file</span> <span class="n">llm_extend_applicant_data</span><span class="o">.</span><span class="n">json</span> <span class="o">--</span><span class="n">create</span><span class="o">-</span><span class="n">db</span>
+</pre></div>
+</div>
+<dl class="py function">
+<dt class="sig sig-object py" id="load_data.parse_date_added">
+<span class="sig-prename descclassname"><span class="pre">load_data.</span></span><span class="sig-name descname"><span class="pre">parse_date_added</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">value</span></span></em><span class="sig-paren">)</span><a class="reference internal" href="../_modules/load_data.html#parse_date_added"><span class="viewcode-link"><span class="pre">[source]</span></span></a><a class="headerlink" href="#load_data.parse_date_added" title="Link to this definition"></a></dt>
+<dd><p>Parse an <code class="docutils literal notranslate"><span class="pre">&quot;Added</span> <span class="pre">on</span> <span class="pre">&lt;Mon</span> <span class="pre">DD,</span> <span class="pre">YYYY&gt;&quot;</span></code> string into a <code class="xref py py-class docutils literal notranslate"><span class="pre">datetime.date</span></code>.</p>
+<dl class="field-list simple">
+<dt class="field-odd">Parameters<span class="colon">:</span></dt>
+<dd class="field-odd"><p><strong>value</strong> (<em>str</em><em> or </em><em>None</em>) – Raw <code class="docutils literal notranslate"><span class="pre">date_added</span></code> string, e.g. <code class="docutils literal notranslate"><span class="pre">&quot;Added</span> <span class="pre">on</span> <span class="pre">Feb</span> <span class="pre">17,</span> <span class="pre">2026&quot;</span></code>.</p>
+</dd>
+<dt class="field-even">Returns<span class="colon">:</span></dt>
+<dd class="field-even"><p>The parsed date, or <code class="docutils literal notranslate"><span class="pre">None</span></code> if the value is empty, does not
+match the expected prefix, or has an unparseable date.</p>
+</dd>
+<dt class="field-odd">Return type<span class="colon">:</span></dt>
+<dd class="field-odd"><p>datetime.date or None</p>
+</dd>
+</dl>
+<div class="doctest highlight-default notranslate"><div class="highlight"><pre><span></span><span class="gp">&gt;&gt;&gt; </span><span class="n">parse_date_added</span><span class="p">(</span><span class="s2">&quot;Added on Feb 17, 2026&quot;</span><span class="p">)</span>
+<span class="go">datetime.date(2026, 2, 17)</span>
+</pre></div>
+</div>
+</dd></dl>
+
+<dl class="py function">
+<dt class="sig sig-object py" id="load_data.parse_gpa">
+<span class="sig-prename descclassname"><span class="pre">load_data.</span></span><span class="sig-name descname"><span class="pre">parse_gpa</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">value</span></span></em><span class="sig-paren">)</span><a class="reference internal" href="../_modules/load_data.html#parse_gpa"><span class="viewcode-link"><span class="pre">[source]</span></span></a><a class="headerlink" href="#load_data.parse_gpa" title="Link to this definition"></a></dt>
+<dd><p>Parse a <code class="docutils literal notranslate"><span class="pre">&quot;GPA</span> <span class="pre">&lt;value&gt;&quot;</span></code> string, e.g. <code class="docutils literal notranslate"><span class="pre">&quot;GPA</span> <span class="pre">3.85&quot;</span></code>, into a float.</p>
+<p>Some entries use a weighted/non-4.0 scale (values up to ~4.9 appear in
+the data), so this does not clamp or reject those – it returns whatever
+number was reported, keeping the column an honest float rather than
+silently dropping legitimate values or tripping a CHECK constraint that
+would abort the whole batch insert.</p>
+<dl class="field-list simple">
+<dt class="field-odd">Parameters<span class="colon">:</span></dt>
+<dd class="field-odd"><p><strong>value</strong> (<em>str</em><em> or </em><em>None</em>) – Raw GPA string.</p>
+</dd>
+<dt class="field-even">Returns<span class="colon">:</span></dt>
+<dd class="field-even"><p>The numeric GPA, or <code class="docutils literal notranslate"><span class="pre">None</span></code> if missing or unparseable.</p>
+</dd>
+<dt class="field-odd">Return type<span class="colon">:</span></dt>
+<dd class="field-odd"><p>float or None</p>
+</dd>
+</dl>
+</dd></dl>
+
+<dl class="py function">
+<dt class="sig sig-object py" id="load_data.parse_score">
+<span class="sig-prename descclassname"><span class="pre">load_data.</span></span><span class="sig-name descname"><span class="pre">parse_score</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">value</span></span></em><span class="sig-paren">)</span><a class="reference internal" href="../_modules/load_data.html#parse_score"><span class="viewcode-link"><span class="pre">[source]</span></span></a><a class="headerlink" href="#load_data.parse_score" title="Link to this definition"></a></dt>
+<dd><p>Extract a trailing numeric GRE score from a free-form string.</p>
+<p>Works for Quant, Verbal and Analytical Writing, e.g. <code class="docutils literal notranslate"><span class="pre">&quot;GRE</span> <span class="pre">166&quot;</span></code>,
+<code class="docutils literal notranslate"><span class="pre">&quot;GRE</span> <span class="pre">V</span> <span class="pre">160&quot;</span></code> or <code class="docutils literal notranslate"><span class="pre">&quot;GRE</span> <span class="pre">AW</span> <span class="pre">4.5&quot;</span></code>. Returns <code class="docutils literal notranslate"><span class="pre">None</span></code> (rather than
+raising) for missing or unparseable values so a record with no GRE
+scores never blocks the load.</p>
+<dl class="field-list simple">
+<dt class="field-odd">Parameters<span class="colon">:</span></dt>
+<dd class="field-odd"><p><strong>value</strong> (<em>str</em><em> or </em><em>None</em>) – Raw score string.</p>
+</dd>
+<dt class="field-even">Returns<span class="colon">:</span></dt>
+<dd class="field-even"><p>The score as a float, or <code class="docutils literal notranslate"><span class="pre">None</span></code>.</p>
+</dd>
+<dt class="field-odd">Return type<span class="colon">:</span></dt>
+<dd class="field-odd"><p>float or None</p>
+</dd>
+</dl>
+</dd></dl>
+
+<dl class="py function">
+<dt class="sig sig-object py" id="load_data.clean_text">
+<span class="sig-prename descclassname"><span class="pre">load_data.</span></span><span class="sig-name descname"><span class="pre">clean_text</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">value</span></span></em><span class="sig-paren">)</span><a class="reference internal" href="../_modules/load_data.html#clean_text"><span class="viewcode-link"><span class="pre">[source]</span></span></a><a class="headerlink" href="#load_data.clean_text" title="Link to this definition"></a></dt>
+<dd><p>Strip surrounding whitespace and normalise empty strings to <code class="docutils literal notranslate"><span class="pre">None</span></code>.</p>
+<dl class="field-list simple">
+<dt class="field-odd">Parameters<span class="colon">:</span></dt>
+<dd class="field-odd"><p><strong>value</strong> (<em>str</em><em> or </em><em>None</em>) – Text to clean.</p>
+</dd>
+<dt class="field-even">Returns<span class="colon">:</span></dt>
+<dd class="field-even"><p>The stripped string, or <code class="docutils literal notranslate"><span class="pre">None</span></code> if it was <code class="docutils literal notranslate"><span class="pre">None</span></code> or blank.</p>
+</dd>
+<dt class="field-odd">Return type<span class="colon">:</span></dt>
+<dd class="field-odd"><p>str or None</p>
+</dd>
+</dl>
+</dd></dl>
+
+<dl class="py function">
+<dt class="sig sig-object py" id="load_data.load_records">
+<span class="sig-prename descclassname"><span class="pre">load_data.</span></span><span class="sig-name descname"><span class="pre">load_records</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">path</span></span></em><span class="sig-paren">)</span><a class="reference internal" href="../_modules/load_data.html#load_records"><span class="viewcode-link"><span class="pre">[source]</span></span></a><a class="headerlink" href="#load_data.load_records" title="Link to this definition"></a></dt>
+<dd><p>Read the source JSON file into a list of applicant dictionaries.</p>
+<dl class="field-list simple">
+<dt class="field-odd">Parameters<span class="colon">:</span></dt>
+<dd class="field-odd"><p><strong>path</strong> (<em>pathlib.Path</em>) – Path to a JSON file containing a list of applicant objects.</p>
+</dd>
+<dt class="field-even">Returns<span class="colon">:</span></dt>
+<dd class="field-even"><p>The decoded list of records.</p>
+</dd>
+<dt class="field-odd">Return type<span class="colon">:</span></dt>
+<dd class="field-odd"><p>list[dict[str, Any]]</p>
+</dd>
+<dt class="field-even">Raises<span class="colon">:</span></dt>
+<dd class="field-even"><ul class="simple">
+<li><p><strong>FileNotFoundError</strong> – If <code class="docutils literal notranslate"><span class="pre">path</span></code> does not exist.</p></li>
+<li><p><strong>json.JSONDecodeError</strong> – If the file is not valid JSON.</p></li>
+</ul>
+</dd>
+</dl>
+</dd></dl>
+
+<dl class="py function">
+<dt class="sig sig-object py" id="load_data.to_row">
+<span class="sig-prename descclassname"><span class="pre">load_data.</span></span><span class="sig-name descname"><span class="pre">to_row</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">rec</span></span></em><span class="sig-paren">)</span><a class="reference internal" href="../_modules/load_data.html#to_row"><span class="viewcode-link"><span class="pre">[source]</span></span></a><a class="headerlink" href="#load_data.to_row" title="Link to this definition"></a></dt>
+<dd><p>Convert one JSON record into a parameter tuple for <a class="reference internal" href="#load_data.INSERT_SQL" title="load_data.INSERT_SQL"><code class="xref py py-data docutils literal notranslate"><span class="pre">INSERT_SQL</span></code></a>.</p>
+<p>The tuple order matches the column list in <a class="reference internal" href="#load_data.INSERT_SQL" title="load_data.INSERT_SQL"><code class="xref py py-data docutils literal notranslate"><span class="pre">INSERT_SQL</span></code></a>:
+<code class="docutils literal notranslate"><span class="pre">program,</span> <span class="pre">comments,</span> <span class="pre">date_added,</span> <span class="pre">url,</span> <span class="pre">status,</span> <span class="pre">term,</span>
+<span class="pre">us_or_international,</span> <span class="pre">gpa,</span> <span class="pre">gre,</span> <span class="pre">gre_v,</span> <span class="pre">gre_aw,</span> <span class="pre">degree,</span>
+<span class="pre">llm_generated_program,</span> <span class="pre">llm_generated_university</span></code>.</p>
+<dl class="field-list simple">
+<dt class="field-odd">Parameters<span class="colon">:</span></dt>
+<dd class="field-odd"><p><strong>rec</strong> (<em>dict</em><em>[</em><em>str</em><em>, </em><em>Any</em><em>]</em>) – A single applicant record from the JSON file.</p>
+</dd>
+<dt class="field-even">Returns<span class="colon">:</span></dt>
+<dd class="field-even"><p>A 14-element tuple of typed column values.</p>
+</dd>
+<dt class="field-odd">Return type<span class="colon">:</span></dt>
+<dd class="field-odd"><p>tuple</p>
+</dd>
+</dl>
+</dd></dl>
+
+<dl class="py function">
+<dt class="sig sig-object py" id="load_data.create_database_if_missing">
+<span class="sig-prename descclassname"><span class="pre">load_data.</span></span><span class="sig-name descname"><span class="pre">create_database_if_missing</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">dbname</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">user</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">password</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">host</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">port</span></span></em><span class="sig-paren">)</span><a class="reference internal" href="../_modules/load_data.html#create_database_if_missing"><span class="viewcode-link"><span class="pre">[source]</span></span></a><a class="headerlink" href="#load_data.create_database_if_missing" title="Link to this definition"></a></dt>
+<dd><p>Create the target database if it does not already exist.</p>
+<p>Connects to the <code class="docutils literal notranslate"><span class="pre">postgres</span></code> maintenance database with autocommit
+enabled (<code class="docutils literal notranslate"><span class="pre">CREATE</span> <span class="pre">DATABASE</span></code> cannot run inside a transaction). The
+connecting role needs the <code class="docutils literal notranslate"><span class="pre">CREATEDB</span></code> privilege.</p>
+<dl class="field-list simple">
+<dt class="field-odd">Parameters<span class="colon">:</span></dt>
+<dd class="field-odd"><ul class="simple">
+<li><p><strong>dbname</strong> (<em>str</em>) – Name of the database to create.</p></li>
+<li><p><strong>user</strong> (<em>str</em><em> | </em><em>None</em>) – PostgreSQL role name.</p></li>
+<li><p><strong>password</strong> (<em>str</em><em> | </em><em>None</em>) – Password for <code class="docutils literal notranslate"><span class="pre">user</span></code> (<code class="docutils literal notranslate"><span class="pre">None</span></code> to rely on <code class="docutils literal notranslate"><span class="pre">PGPASSWORD</span></code>
+or <code class="docutils literal notranslate"><span class="pre">~/.pgpass</span></code>).</p></li>
+<li><p><strong>host</strong> (<em>str</em>) – Database host.</p></li>
+<li><p><strong>port</strong> (<em>str</em>) – Database port.</p></li>
+</ul>
+</dd>
+<dt class="field-even">Return type<span class="colon">:</span></dt>
+<dd class="field-even"><p>None</p>
+</dd>
+</dl>
+</dd></dl>
+
+<dl class="py data">
+<dt class="sig sig-object py" id="load_data.CREATE_TABLE_SQL">
+<span class="sig-prename descclassname"><span class="pre">load_data.</span></span><span class="sig-name descname"><span class="pre">CREATE_TABLE_SQL</span></span><span class="property"><span class="w"> </span><span class="p"><span class="pre">=</span></span><span class="w"> </span><span class="pre">'\nCREATE</span> <span class="pre">TABLE</span> <span class="pre">IF</span> <span class="pre">NOT</span> <span class="pre">EXISTS</span> <span class="pre">applicants</span> <span class="pre">(\n</span>&#160;&#160;&#160; <span class="pre">p_id</span>&#160;&#160;&#160;&#160;&#160;&#160;&#160;&#160;&#160;&#160;&#160;&#160;&#160;&#160;&#160;&#160;&#160;&#160;&#160;&#160;&#160;&#160;&#160; <span class="pre">SERIAL</span> <span class="pre">PRIMARY</span> <span class="pre">KEY,</span>&#160;&#160; <span class="pre">--</span> <span class="pre">unique</span> <span class="pre">identifier\n</span>&#160;&#160;&#160; <span class="pre">program</span>&#160;&#160;&#160;&#160;&#160;&#160;&#160;&#160;&#160;&#160;&#160;&#160;&#160;&#160;&#160;&#160;&#160;&#160;&#160;&#160; <span class="pre">TEXT</span> <span class="pre">NOT</span> <span class="pre">NULL,</span>&#160;&#160;&#160;&#160;&#160;&#160;&#160; <span class="pre">--</span> <span class="pre">University</span> <span class="pre">and</span> <span class="pre">Department/Program\n</span>&#160;&#160;&#160; <span class="pre">comments</span>&#160;&#160;&#160;&#160;&#160;&#160;&#160;&#160;&#160;&#160;&#160;&#160;&#160;&#160;&#160;&#160;&#160;&#160;&#160; <span class="pre">TEXT,</span>&#160;&#160;&#160;&#160;&#160;&#160;&#160;&#160;&#160;&#160;&#160;&#160;&#160;&#160;&#160;&#160; <span class="pre">--</span> <span class="pre">applicant</span> <span class="pre">comments\n</span>&#160;&#160;&#160; <span class="pre">date_added</span>&#160;&#160;&#160;&#160;&#160;&#160;&#160;&#160;&#160;&#160;&#160;&#160;&#160;&#160;&#160;&#160;&#160; <span class="pre">DATE,</span>&#160;&#160;&#160;&#160;&#160;&#160;&#160;&#160;&#160;&#160;&#160;&#160;&#160;&#160;&#160;&#160; <span class="pre">--</span> <span class="pre">date</span> <span class="pre">entry</span> <span class="pre">was</span> <span class="pre">added\n</span>&#160;&#160;&#160; <span class="pre">url</span>&#160;&#160;&#160;&#160;&#160;&#160;&#160;&#160;&#160;&#160;&#160;&#160;&#160;&#160;&#160;&#160;&#160;&#160;&#160;&#160;&#160;&#160;&#160;&#160; <span class="pre">TEXT</span> <span class="pre">NOT</span> <span class="pre">NULL</span> <span class="pre">UNIQUE,</span> <span class="pre">--</span> <span class="pre">link</span> <span class="pre">to</span> <span class="pre">Grad</span> <span class="pre">Cafe</span> <span class="pre">entry</span> <span class="pre">(natural</span> <span class="pre">key)\n</span>&#160;&#160;&#160; <span class="pre">status</span>&#160;&#160;&#160;&#160;&#160;&#160;&#160;&#160;&#160;&#160;&#160;&#160;&#160;&#160;&#160;&#160;&#160;&#160;&#160;&#160;&#160; <span class="pre">TEXT,</span>&#160;&#160;&#160;&#160;&#160;&#160;&#160;&#160;&#160;&#160;&#160;&#160;&#160;&#160;&#160;&#160; <span class="pre">--</span> <span class="pre">admission</span> <span class="pre">status\n</span>&#160;&#160;&#160; <span class="pre">term</span>&#160;&#160;&#160;&#160;&#160;&#160;&#160;&#160;&#160;&#160;&#160;&#160;&#160;&#160;&#160;&#160;&#160;&#160;&#160;&#160;&#160;&#160;&#160; <span class="pre">TEXT,</span>&#160;&#160;&#160;&#160;&#160;&#160;&#160;&#160;&#160;&#160;&#160;&#160;&#160;&#160;&#160;&#160; <span class="pre">--</span> <span class="pre">intended</span> <span class="pre">start</span> <span class="pre">term\n</span>&#160;&#160;&#160; <span class="pre">us_or_international</span>&#160;&#160;&#160;&#160;&#160;&#160;&#160;&#160; <span class="pre">TEXT,</span>&#160;&#160;&#160;&#160;&#160;&#160;&#160;&#160;&#160;&#160;&#160;&#160;&#160;&#160;&#160;&#160; <span class="pre">--</span> <span class="pre">applicant</span> <span class="pre">nationality</span> <span class="pre">classification\n</span>&#160;&#160;&#160; <span class="pre">gpa</span>&#160;&#160;&#160;&#160;&#160;&#160;&#160;&#160;&#160;&#160;&#160;&#160;&#160;&#160;&#160;&#160;&#160;&#160;&#160;&#160;&#160;&#160;&#160;&#160; <span class="pre">REAL,</span>&#160;&#160;&#160;&#160;&#160;&#160;&#160;&#160;&#160;&#160;&#160;&#160;&#160;&#160;&#160;&#160; <span class="pre">--</span> <span class="pre">applicant</span> <span class="pre">GPA\n</span>&#160;&#160;&#160; <span class="pre">gre</span>&#160;&#160;&#160;&#160;&#160;&#160;&#160;&#160;&#160;&#160;&#160;&#160;&#160;&#160;&#160;&#160;&#160;&#160;&#160;&#160;&#160;&#160;&#160;&#160; <span class="pre">REAL,</span>&#160;&#160;&#160;&#160;&#160;&#160;&#160;&#160;&#160;&#160;&#160;&#160;&#160;&#160;&#160;&#160; <span class="pre">--</span> <span class="pre">GRE</span> <span class="pre">Quantitative</span> <span class="pre">score\n</span>&#160;&#160;&#160; <span class="pre">gre_v</span>&#160;&#160;&#160;&#160;&#160;&#160;&#160;&#160;&#160;&#160;&#160;&#160;&#160;&#160;&#160;&#160;&#160;&#160;&#160;&#160;&#160;&#160; <span class="pre">REAL,</span>&#160;&#160;&#160;&#160;&#160;&#160;&#160;&#160;&#160;&#160;&#160;&#160;&#160;&#160;&#160;&#160; <span class="pre">--</span> <span class="pre">GRE</span> <span class="pre">Verbal</span> <span class="pre">score\n</span>&#160;&#160;&#160; <span class="pre">gre_aw</span>&#160;&#160;&#160;&#160;&#160;&#160;&#160;&#160;&#160;&#160;&#160;&#160;&#160;&#160;&#160;&#160;&#160;&#160;&#160;&#160;&#160; <span class="pre">REAL,</span>&#160;&#160;&#160;&#160;&#160;&#160;&#160;&#160;&#160;&#160;&#160;&#160;&#160;&#160;&#160;&#160; <span class="pre">--</span> <span class="pre">GRE</span> <span class="pre">Analytical</span> <span class="pre">Writing</span> <span class="pre">score\n</span>&#160;&#160;&#160; <span class="pre">degree</span>&#160;&#160;&#160;&#160;&#160;&#160;&#160;&#160;&#160;&#160;&#160;&#160;&#160;&#160;&#160;&#160;&#160;&#160;&#160;&#160;&#160; <span class="pre">TEXT,</span>&#160;&#160;&#160;&#160;&#160;&#160;&#160;&#160;&#160;&#160;&#160;&#160;&#160;&#160;&#160;&#160; <span class="pre">--</span> <span class="pre">degree</span> <span class="pre">type\n</span>&#160;&#160;&#160; <span class="pre">llm_generated_program</span>&#160;&#160;&#160;&#160;&#160;&#160; <span class="pre">TEXT,</span>&#160;&#160;&#160;&#160;&#160;&#160;&#160;&#160;&#160;&#160;&#160;&#160;&#160;&#160;&#160;&#160; <span class="pre">--</span> <span class="pre">LLM-generated</span> <span class="pre">department/program\n</span>&#160;&#160;&#160; <span class="pre">llm_generated_university</span>&#160;&#160;&#160; <span class="pre">TEXT</span>&#160;&#160;&#160;&#160;&#160;&#160;&#160;&#160;&#160;&#160;&#160;&#160;&#160;&#160;&#160;&#160;&#160; <span class="pre">--</span> <span class="pre">LLM-generated</span> <span class="pre">university\n);\n\nCREATE</span> <span class="pre">INDEX</span> <span class="pre">IF</span> <span class="pre">NOT</span> <span class="pre">EXISTS</span> <span class="pre">idx_applicants_university</span>&#160; <span class="pre">ON</span> <span class="pre">applicants</span> <span class="pre">(llm_generated_university);\nCREATE</span> <span class="pre">INDEX</span> <span class="pre">IF</span> <span class="pre">NOT</span> <span class="pre">EXISTS</span> <span class="pre">idx_applicants_program</span>&#160;&#160;&#160;&#160;&#160; <span class="pre">ON</span> <span class="pre">applicants</span> <span class="pre">(llm_generated_program);\nCREATE</span> <span class="pre">INDEX</span> <span class="pre">IF</span> <span class="pre">NOT</span> <span class="pre">EXISTS</span> <span class="pre">idx_applicants_term</span>&#160;&#160;&#160;&#160;&#160;&#160;&#160;&#160; <span class="pre">ON</span> <span class="pre">applicants</span> <span class="pre">(term);\nCREATE</span> <span class="pre">INDEX</span> <span class="pre">IF</span> <span class="pre">NOT</span> <span class="pre">EXISTS</span> <span class="pre">idx_applicants_degree</span>&#160;&#160;&#160;&#160;&#160;&#160; <span class="pre">ON</span> <span class="pre">applicants</span> <span class="pre">(degree);\n'</span></span><a class="headerlink" href="#load_data.CREATE_TABLE_SQL" title="Link to this definition"></a></dt>
+<dd><p>DDL for the <code class="docutils literal notranslate"><span class="pre">applicants</span></code> table and its lookup indexes. Idempotent
+(<code class="docutils literal notranslate"><span class="pre">IF</span> <span class="pre">NOT</span> <span class="pre">EXISTS</span></code>) so it is safe to run on every load.</p>
+</dd></dl>
+
+<dl class="py data">
+<dt class="sig sig-object py" id="load_data.MIGRATE_SQL">
+<span class="sig-prename descclassname"><span class="pre">load_data.</span></span><span class="sig-name descname"><span class="pre">MIGRATE_SQL</span></span><span class="property"><span class="w"> </span><span class="p"><span class="pre">=</span></span><span class="w"> </span><span class="pre">'\nALTER</span> <span class="pre">TABLE</span> <span class="pre">applicants</span> <span class="pre">DROP</span> <span class="pre">CONSTRAINT</span> <span class="pre">IF</span> <span class="pre">EXISTS</span> <span class="pre">applicants_gpa_check;\n'</span></span><a class="headerlink" href="#load_data.MIGRATE_SQL" title="Link to this definition"></a></dt>
+<dd><p>Brings a table created by an older version of this script up to date
+(drops a legacy GPA CHECK constraint that rejected weighted GPAs).</p>
+</dd></dl>
+
+<dl class="py data">
+<dt class="sig sig-object py" id="load_data.INSERT_SQL">
+<span class="sig-prename descclassname"><span class="pre">load_data.</span></span><span class="sig-name descname"><span class="pre">INSERT_SQL</span></span><span class="property"><span class="w"> </span><span class="p"><span class="pre">=</span></span><span class="w"> </span><span class="pre">'\nINSERT</span> <span class="pre">INTO</span> <span class="pre">applicants</span> <span class="pre">(\n</span>&#160;&#160;&#160; <span class="pre">program,</span> <span class="pre">comments,</span> <span class="pre">date_added,</span> <span class="pre">url,</span> <span class="pre">status,</span> <span class="pre">term,\n</span>&#160;&#160;&#160; <span class="pre">us_or_international,</span> <span class="pre">gpa,</span> <span class="pre">gre,</span> <span class="pre">gre_v,</span> <span class="pre">gre_aw,</span> <span class="pre">degree,\n</span>&#160;&#160;&#160; <span class="pre">llm_generated_program,</span> <span class="pre">llm_generated_university\n)</span> <span class="pre">VALUES</span> <span class="pre">(\n</span>&#160;&#160;&#160; <span class="pre">%s,</span> <span class="pre">%s,</span> <span class="pre">%s,</span> <span class="pre">%s,</span> <span class="pre">%s,</span> <span class="pre">%s,</span> <span class="pre">%s,</span> <span class="pre">%s,</span> <span class="pre">%s,</span> <span class="pre">%s,</span> <span class="pre">%s,</span> <span class="pre">%s,</span> <span class="pre">%s,</span> <span class="pre">%s\n)\nON</span> <span class="pre">CONFLICT</span> <span class="pre">(url)</span> <span class="pre">DO</span> <span class="pre">UPDATE</span> <span class="pre">SET\n</span>&#160;&#160;&#160; <span class="pre">program</span>&#160;&#160;&#160;&#160;&#160;&#160;&#160;&#160;&#160;&#160;&#160;&#160;&#160;&#160;&#160;&#160;&#160; <span class="pre">=</span> <span class="pre">EXCLUDED.program,\n</span>&#160;&#160;&#160; <span class="pre">comments</span>&#160;&#160;&#160;&#160;&#160;&#160;&#160;&#160;&#160;&#160;&#160;&#160;&#160;&#160;&#160;&#160; <span class="pre">=</span> <span class="pre">EXCLUDED.comments,\n</span>&#160;&#160;&#160; <span class="pre">date_added</span>&#160;&#160;&#160;&#160;&#160;&#160;&#160;&#160;&#160;&#160;&#160;&#160;&#160;&#160; <span class="pre">=</span> <span class="pre">EXCLUDED.date_added,\n</span>&#160;&#160;&#160; <span class="pre">status</span>&#160;&#160;&#160;&#160;&#160;&#160;&#160;&#160;&#160;&#160;&#160;&#160;&#160;&#160;&#160;&#160;&#160;&#160; <span class="pre">=</span> <span class="pre">EXCLUDED.status,\n</span>&#160;&#160;&#160; <span class="pre">term</span>&#160;&#160;&#160;&#160;&#160;&#160;&#160;&#160;&#160;&#160;&#160;&#160;&#160;&#160;&#160;&#160;&#160;&#160;&#160;&#160; <span class="pre">=</span> <span class="pre">EXCLUDED.term,\n</span>&#160;&#160;&#160; <span class="pre">us_or_international</span>&#160;&#160;&#160;&#160;&#160; <span class="pre">=</span> <span class="pre">EXCLUDED.us_or_international,\n</span>&#160;&#160;&#160; <span class="pre">gpa</span>&#160;&#160;&#160;&#160;&#160;&#160;&#160;&#160;&#160;&#160;&#160;&#160;&#160;&#160;&#160;&#160;&#160;&#160;&#160;&#160;&#160; <span class="pre">=</span> <span class="pre">EXCLUDED.gpa,\n</span>&#160;&#160;&#160; <span class="pre">gre</span>&#160;&#160;&#160;&#160;&#160;&#160;&#160;&#160;&#160;&#160;&#160;&#160;&#160;&#160;&#160;&#160;&#160;&#160;&#160;&#160;&#160; <span class="pre">=</span> <span class="pre">EXCLUDED.gre,\n</span>&#160;&#160;&#160; <span class="pre">gre_v</span>&#160;&#160;&#160;&#160;&#160;&#160;&#160;&#160;&#160;&#160;&#160;&#160;&#160;&#160;&#160;&#160;&#160;&#160;&#160; <span class="pre">=</span> <span class="pre">EXCLUDED.gre_v,\n</span>&#160;&#160;&#160; <span class="pre">gre_aw</span>&#160;&#160;&#160;&#160;&#160;&#160;&#160;&#160;&#160;&#160;&#160;&#160;&#160;&#160;&#160;&#160;&#160;&#160; <span class="pre">=</span> <span class="pre">EXCLUDED.gre_aw,\n</span>&#160;&#160;&#160; <span class="pre">degree</span>&#160;&#160;&#160;&#160;&#160;&#160;&#160;&#160;&#160;&#160;&#160;&#160;&#160;&#160;&#160;&#160;&#160;&#160; <span class="pre">=</span> <span class="pre">EXCLUDED.degree,\n</span>&#160;&#160;&#160; <span class="pre">llm_generated_program</span>&#160;&#160;&#160; <span class="pre">=</span> <span class="pre">EXCLUDED.llm_generated_program,\n</span>&#160;&#160;&#160; <span class="pre">llm_generated_university</span> <span class="pre">=</span> <span class="pre">EXCLUDED.llm_generated_university;\n'</span></span><a class="headerlink" href="#load_data.INSERT_SQL" title="Link to this definition"></a></dt>
+<dd><p>Parameterised upsert keyed on <code class="docutils literal notranslate"><span class="pre">url</span></code>. Re-running the loader refreshes
+every column of existing rows instead of failing on the UNIQUE constraint.</p>
+</dd></dl>
+
+<dl class="py function">
+<dt class="sig sig-object py" id="load_data.main">
+<span class="sig-prename descclassname"><span class="pre">load_data.</span></span><span class="sig-name descname"><span class="pre">main</span></span><span class="sig-paren">(</span><span class="sig-paren">)</span><a class="reference internal" href="../_modules/load_data.html#main"><span class="viewcode-link"><span class="pre">[source]</span></span></a><a class="headerlink" href="#load_data.main" title="Link to this definition"></a></dt>
+<dd><p>Command-line entry point: parse arguments and load the JSON file.</p>
+<p>Steps:</p>
+<ol class="arabic simple">
+<li><p>Optionally create the database (<code class="docutils literal notranslate"><span class="pre">--create-db</span></code>).</p></li>
+<li><p>Read the JSON file and convert every record with <a class="reference internal" href="#load_data.to_row" title="load_data.to_row"><code class="xref py py-func docutils literal notranslate"><span class="pre">to_row()</span></code></a>.</p></li>
+<li><p>Run <a class="reference internal" href="#load_data.CREATE_TABLE_SQL" title="load_data.CREATE_TABLE_SQL"><code class="xref py py-data docutils literal notranslate"><span class="pre">CREATE_TABLE_SQL</span></code></a> and <a class="reference internal" href="#load_data.MIGRATE_SQL" title="load_data.MIGRATE_SQL"><code class="xref py py-data docutils literal notranslate"><span class="pre">MIGRATE_SQL</span></code></a>.</p></li>
+<li><p>Bulk-upsert all rows with <a class="reference internal" href="#load_data.INSERT_SQL" title="load_data.INSERT_SQL"><code class="xref py py-data docutils literal notranslate"><span class="pre">INSERT_SQL</span></code></a> in a single transaction,
+rolling back on any error.</p></li>
+</ol>
+<dl class="field-list simple">
+<dt class="field-odd">Raises<span class="colon">:</span></dt>
+<dd class="field-odd"><p><strong>Exception</strong> – Re-raises any database error after rolling back.</p>
+</dd>
+<dt class="field-even">Return type<span class="colon">:</span></dt>
+<dd class="field-even"><p>None</p>
+</dd>
+</dl>
+</dd></dl>
+
+</section>
+
+
+           </div>
+          </div>
+          <footer><div class="rst-footer-buttons" role="navigation" aria-label="Footer">
+        <a href="clean.html" class="btn btn-neutral float-left" title="clean – Transform" accesskey="p" rel="prev"><span class="fa fa-arrow-circle-left" aria-hidden="true"></span> Previous</a>
+        <a href="query_data.html" class="btn btn-neutral float-right" title="query_data – SQL Analysis" accesskey="n" rel="next">Next <span class="fa fa-arrow-circle-right" aria-hidden="true"></span></a>
+    </div>
+
+  <hr/>
+
+  <div role="contentinfo">
+    <p>&#169; Copyright 2026, Shane Battles (sbattl15).</p>
+  </div>
+
+  Built with <a href="https://www.sphinx-doc.org/">Sphinx</a> using a
+    <a href="https://github.com/readthedocs/sphinx_rtd_theme">theme</a>
+    provided by <a href="https://readthedocs.org">Read the Docs</a>.
+   
+
+</footer>
+        </div>
+      </div>
+    </section>
+  </div>
+  <script>
+      jQuery(function () {
+          SphinxRtdTheme.Navigation.enable(true);
+      });
+  </script> 
+
+</body>
+</html>

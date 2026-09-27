@@ -1,0 +1,302 @@
+
+
+<!DOCTYPE html>
+<html class="writer-html5" lang="en" data-content_root="./">
+<head>
+  <meta charset="utf-8" /><meta name="viewport" content="width=device-width, initial-scale=1" />
+
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Overview &amp; Setup &mdash; GradCafe Analytics</title>
+      <link rel="stylesheet" type="text/css" href="_static/pygments.css?v=b86133f3" />
+      <link rel="stylesheet" type="text/css" href="_static/css/theme.css?v=9edc463e" />
+
+  
+      <script src="_static/jquery.js?v=5d32c60e"></script>
+      <script src="_static/_sphinx_javascript_frameworks_compat.js?v=2cd50e6c"></script>
+      <script src="_static/documentation_options.js?v=f2a433a1"></script>
+      <script src="_static/doctools.js?v=fd6eb6e6"></script>
+      <script src="_static/sphinx_highlight.js?v=6ffebe34"></script>
+    <script src="_static/js/theme.js"></script>
+    <link rel="index" title="Index" href="genindex.html" />
+    <link rel="search" title="Search" href="search.html" />
+    <link rel="next" title="Architecture" href="architecture.html" />
+    <link rel="prev" title="GradCafe Analytics" href="index.html" /> 
+</head>
+
+<body class="wy-body-for-nav"> 
+  <div class="wy-grid-for-nav">
+    <nav data-toggle="wy-nav-shift" class="wy-nav-side">
+      <div class="wy-side-scroll">
+        <div class="wy-side-nav-search" >
+
+          
+          
+          <a href="index.html" class="icon icon-home">
+            GradCafe Analytics
+          </a>
+<div role="search">
+  <form id="rtd-search-form" class="wy-form" action="search.html" method="get">
+    <input type="text" name="q" placeholder="Search docs" aria-label="Search docs" />
+    <input type="hidden" name="check_keywords" value="yes" />
+    <input type="hidden" name="area" value="default" />
+  </form>
+</div>
+        </div><div class="wy-menu wy-menu-vertical" data-spy="affix" role="navigation" aria-label="Navigation menu">
+              <p class="caption" role="heading"><span class="caption-text">Guide</span></p>
+<ul class="current">
+<li class="toctree-l1 current"><a class="current reference internal" href="#">Overview &amp; Setup</a><ul>
+<li class="toctree-l2"><a class="reference internal" href="#what-it-does">What it does</a></li>
+<li class="toctree-l2"><a class="reference internal" href="#project-layout">Project layout</a></li>
+<li class="toctree-l2"><a class="reference internal" href="#requirements">Requirements</a></li>
+<li class="toctree-l2"><a class="reference internal" href="#installation">Installation</a></li>
+<li class="toctree-l2"><a class="reference internal" href="#environment-variables">Environment variables</a></li>
+<li class="toctree-l2"><a class="reference internal" href="#loading-the-data">Loading the data</a></li>
+<li class="toctree-l2"><a class="reference internal" href="#running-the-app">Running the app</a></li>
+<li class="toctree-l2"><a class="reference internal" href="#running-the-tests">Running the tests</a></li>
+<li class="toctree-l2"><a class="reference internal" href="#building-these-docs">Building these docs</a></li>
+</ul>
+</li>
+<li class="toctree-l1"><a class="reference internal" href="architecture.html">Architecture</a></li>
+<li class="toctree-l1"><a class="reference internal" href="testing.html">Testing Guide</a></li>
+</ul>
+<p class="caption" role="heading"><span class="caption-text">API Reference</span></p>
+<ul>
+<li class="toctree-l1"><a class="reference internal" href="api/index.html">API Reference</a></li>
+</ul>
+
+        </div>
+      </div>
+    </nav>
+
+    <section data-toggle="wy-nav-shift" class="wy-nav-content-wrap"><nav class="wy-nav-top" aria-label="Mobile navigation menu" >
+          <i data-toggle="wy-nav-top" class="fa fa-bars"></i>
+          <a href="index.html">GradCafe Analytics</a>
+      </nav>
+
+      <div class="wy-nav-content">
+        <div class="rst-content">
+          <div role="navigation" aria-label="Page navigation">
+  <ul class="wy-breadcrumbs">
+      <li><a href="index.html" class="icon icon-home" aria-label="Home"></a></li>
+      <li class="breadcrumb-item active">Overview &amp; Setup</li>
+      <li class="wy-breadcrumbs-aside">
+            <a href="_sources/overview.rst.txt" rel="nofollow"> View page source</a>
+      </li>
+  </ul>
+  <hr/>
+</div>
+          <div role="main" class="document" itemscope="itemscope" itemtype="http://schema.org/Article">
+           <div itemprop="articleBody">
+             
+  <section id="overview-setup">
+<h1>Overview &amp; Setup<a class="headerlink" href="#overview-setup" title="Link to this heading"></a></h1>
+<section id="what-it-does">
+<h2>What it does<a class="headerlink" href="#what-it-does" title="Link to this heading"></a></h2>
+<p>The project answers questions about graduate-school admissions – how many
+people applied for a term, acceptance rates, average GPA/GRE scores and so
+on – using applicant-reported results from The GradCafe.</p>
+<ol class="arabic simple">
+<li><p><strong>Scrape</strong> survey pages (respecting <code class="docutils literal notranslate"><span class="pre">robots.txt</span></code>) into raw JSON.</p></li>
+<li><p><strong>Clean</strong> the raw text into structured fields with regular expressions.</p></li>
+<li><p><strong>Standardize</strong> program and university names with a local LLM.</p></li>
+<li><p><strong>Load</strong> the result into a PostgreSQL <code class="docutils literal notranslate"><span class="pre">applicants</span></code> table.</p></li>
+<li><p><strong>Analyze</strong> it from the command line (<code class="docutils literal notranslate"><span class="pre">query_data.py</span></code>) or in a Flask
+dashboard that can also pull new data and refresh its results.</p></li>
+</ol>
+</section>
+<section id="project-layout">
+<h2>Project layout<a class="headerlink" href="#project-layout" title="Link to this heading"></a></h2>
+<div class="highlight-text notranslate"><div class="highlight"><pre><span></span>module_04/
+├── docs/                     Sphinx documentation (this site)
+├── src/
+│   ├── load_data.py          one-time bulk load of the JSON into Postgres
+│   ├── query_data.py         raw-SQL answers printed to the console
+│   └── flask_website/
+│       ├── app.py            Flask app and routes
+│       ├── scrape.py         GradCafe scraper
+│       ├── clean.py          regex cleaner
+│       ├── llm_standardize.py  local-LLM program/university standardizer
+│       ├── pull_data.py      scrape → clean → LLM → load (Pull Data button)
+│       ├── models.py         SQLAlchemy Applicant model + session
+│       ├── orm_queries.py    analysis queries via SQLAlchemy
+│       └── templates/index.html
+├── tests/                    pytest suite
+├── pytest.ini
+└── requirements.txt
+</pre></div>
+</div>
+</section>
+<section id="requirements">
+<h2>Requirements<a class="headerlink" href="#requirements" title="Link to this heading"></a></h2>
+<ul class="simple">
+<li><p>Python 3.10+</p></li>
+<li><p>PostgreSQL 14+</p></li>
+<li><p>The packages in <code class="docutils literal notranslate"><span class="pre">requirements.txt</span></code> (Flask, psycopg, SQLAlchemy,
+BeautifulSoup4, llama-cpp-python, huggingface_hub, pytest, pytest-cov)</p></li>
+</ul>
+</section>
+<section id="installation">
+<h2>Installation<a class="headerlink" href="#installation" title="Link to this heading"></a></h2>
+<div class="highlight-bash notranslate"><div class="highlight"><pre><span></span>git<span class="w"> </span>clone<span class="w"> </span>https://github.com/sbattl15/jhu_software_concepts.git
+<span class="nb">cd</span><span class="w"> </span>jhu_software_concepts/module_04
+python<span class="w"> </span>-m<span class="w"> </span>venv<span class="w"> </span>.venv
+<span class="nb">source</span><span class="w"> </span>.venv/bin/activate<span class="w">          </span><span class="c1"># Windows: .venv\Scripts\activate</span>
+pip<span class="w"> </span>install<span class="w"> </span>-r<span class="w"> </span>requirements.txt
+</pre></div>
+</div>
+</section>
+<section id="environment-variables">
+<h2>Environment variables<a class="headerlink" href="#environment-variables" title="Link to this heading"></a></h2>
+<p>The database connection is read from the standard PostgreSQL (libpq)
+variables by <code class="docutils literal notranslate"><span class="pre">load_data.py</span></code>, <code class="docutils literal notranslate"><span class="pre">query_data.py</span></code> and <code class="docutils literal notranslate"><span class="pre">models.py</span></code>. Never
+hard-code a password; set these in your shell or a <code class="docutils literal notranslate"><span class="pre">.env</span></code> file that is
+excluded from Git.</p>
+<table class="docutils align-default">
+<colgroup>
+<col style="width: 24.0%" />
+<col style="width: 26.0%" />
+<col style="width: 50.0%" />
+</colgroup>
+<thead>
+<tr class="row-odd"><th class="head"><p>Variable</p></th>
+<th class="head"><p>Default</p></th>
+<th class="head"><p>Purpose</p></th>
+</tr>
+</thead>
+<tbody>
+<tr class="row-even"><td><p><code class="docutils literal notranslate"><span class="pre">PGDATABASE</span></code></p></td>
+<td><p><code class="docutils literal notranslate"><span class="pre">gradcafe_applications</span></code></p></td>
+<td><p>Database name</p></td>
+</tr>
+<tr class="row-odd"><td><p><code class="docutils literal notranslate"><span class="pre">PGUSER</span></code></p></td>
+<td><p><code class="docutils literal notranslate"><span class="pre">postgres</span></code></p></td>
+<td><p>Database role</p></td>
+</tr>
+<tr class="row-even"><td><p><code class="docutils literal notranslate"><span class="pre">PGPASSWORD</span></code></p></td>
+<td><p><em>(none)</em></p></td>
+<td><p>Database password (or use <code class="docutils literal notranslate"><span class="pre">~/.pgpass</span></code>)</p></td>
+</tr>
+<tr class="row-odd"><td><p><code class="docutils literal notranslate"><span class="pre">PGHOST</span></code></p></td>
+<td><p><code class="docutils literal notranslate"><span class="pre">localhost</span></code></p></td>
+<td><p>Database host</p></td>
+</tr>
+<tr class="row-even"><td><p><code class="docutils literal notranslate"><span class="pre">PGPORT</span></code></p></td>
+<td><p><code class="docutils literal notranslate"><span class="pre">5432</span></code></p></td>
+<td><p>Database port</p></td>
+</tr>
+<tr class="row-odd"><td><p><code class="docutils literal notranslate"><span class="pre">FLASK_SECRET_KEY</span></code></p></td>
+<td><p><code class="docutils literal notranslate"><span class="pre">dev-secret-change-me</span></code></p></td>
+<td><p>Flask session key. <strong>Set a real value outside development.</strong></p></td>
+</tr>
+<tr class="row-even"><td><p><code class="docutils literal notranslate"><span class="pre">PULL_DATA_MAX_PAGES</span></code></p></td>
+<td><p><code class="docutils literal notranslate"><span class="pre">25</span></code></p></td>
+<td><p>Survey pages fetched per <strong>Pull Data</strong> click</p></td>
+</tr>
+<tr class="row-odd"><td><p><code class="docutils literal notranslate"><span class="pre">MODEL_REPO</span></code> / <code class="docutils literal notranslate"><span class="pre">MODEL_FILE</span></code></p></td>
+<td><p>TinyLlama 1.1B Chat (GGUF)</p></td>
+<td><p>Hugging Face model used by <code class="docutils literal notranslate"><span class="pre">llm_standardize.py</span></code></p></td>
+</tr>
+<tr class="row-even"><td><p><code class="docutils literal notranslate"><span class="pre">N_THREADS</span></code>, <code class="docutils literal notranslate"><span class="pre">N_CTX</span></code>, <code class="docutils literal notranslate"><span class="pre">N_GPU_LAYERS</span></code>, <code class="docutils literal notranslate"><span class="pre">NUM_WORKERS</span></code></p></td>
+<td><p>CPU count, <code class="docutils literal notranslate"><span class="pre">2048</span></code>, <code class="docutils literal notranslate"><span class="pre">0</span></code>, <code class="docutils literal notranslate"><span class="pre">12</span></code></p></td>
+<td><p>LLM performance tuning</p></td>
+</tr>
+</tbody>
+</table>
+<div class="admonition note">
+<p class="admonition-title">Note</p>
+<p>There is no single <code class="docutils literal notranslate"><span class="pre">DATABASE_URL</span></code> variable: <code class="docutils literal notranslate"><span class="pre">models.py</span></code> builds the
+SQLAlchemy URL from the <code class="docutils literal notranslate"><span class="pre">PG*</span></code> variables above
+(<code class="docutils literal notranslate"><span class="pre">postgresql+psycopg://PGUSER:PGPASSWORD&#64;PGHOST:PGPORT/PGDATABASE</span></code>).</p>
+</div>
+<p>Example (macOS/Linux):</p>
+<div class="highlight-bash notranslate"><div class="highlight"><pre><span></span><span class="nb">export</span><span class="w"> </span><span class="nv">PGDATABASE</span><span class="o">=</span>gradcafe_applications<span class="w"> </span><span class="nv">PGUSER</span><span class="o">=</span>postgres<span class="w"> </span><span class="nv">PGPASSWORD</span><span class="o">=</span>secret
+<span class="nb">export</span><span class="w"> </span><span class="nv">FLASK_SECRET_KEY</span><span class="o">=</span><span class="s2">&quot;</span><span class="k">$(</span>python<span class="w"> </span>-c<span class="w"> </span><span class="s1">&#39;import secrets; print(secrets.token_hex())&#39;</span><span class="k">)</span><span class="s2">&quot;</span>
+</pre></div>
+</div>
+<p>Windows PowerShell:</p>
+<div class="highlight-powershell notranslate"><div class="highlight"><pre><span></span><span class="nv">$env:PGDATABASE</span> <span class="p">=</span> <span class="s2">&quot;gradcafe_applications&quot;</span><span class="p">;</span> <span class="nv">$env:PGUSER</span> <span class="p">=</span> <span class="s2">&quot;postgres&quot;</span><span class="p">;</span> <span class="nv">$env:PGPASSWORD</span> <span class="p">=</span> <span class="s2">&quot;secret&quot;</span>
+</pre></div>
+</div>
+</section>
+<section id="loading-the-data">
+<h2>Loading the data<a class="headerlink" href="#loading-the-data" title="Link to this heading"></a></h2>
+<div class="highlight-bash notranslate"><div class="highlight"><pre><span></span><span class="nb">cd</span><span class="w"> </span>src
+<span class="c1"># creates the database if needed, then upserts every record</span>
+python<span class="w"> </span>load_data.py<span class="w"> </span>--json-file<span class="w"> </span>../llm_extend_applicant_data.json<span class="w"> </span>--create-db
+
+<span class="c1"># print the analysis answers with raw SQL</span>
+python<span class="w"> </span>query_data.py
+</pre></div>
+</div>
+</section>
+<section id="running-the-app">
+<h2>Running the app<a class="headerlink" href="#running-the-app" title="Link to this heading"></a></h2>
+<div class="highlight-bash notranslate"><div class="highlight"><pre><span></span><span class="nb">cd</span><span class="w"> </span>src/flask_website
+python<span class="w"> </span>app.py<span class="w">                 </span><span class="c1"># or: flask --app app run</span>
+<span class="c1"># open http://127.0.0.1:5000/</span>
+</pre></div>
+</div>
+<p>The page lists every analysis question with its answer and has two buttons:</p>
+<ul class="simple">
+<li><p><strong>Pull Data</strong> – runs <code class="docutils literal notranslate"><span class="pre">pull_data.py</span></code> in the background to scrape, clean,
+standardize and insert new entries. Status is shown under the buttons.</p></li>
+<li><p><strong>Update Analysis</strong> – re-runs the queries. Refused (HTTP 409) while a
+pull is still running.</p></li>
+</ul>
+</section>
+<section id="running-the-tests">
+<h2>Running the tests<a class="headerlink" href="#running-the-tests" title="Link to this heading"></a></h2>
+<p>From <code class="docutils literal notranslate"><span class="pre">module_04</span></code> (<code class="docutils literal notranslate"><span class="pre">pytest.ini</span></code> supplies the Python path and the
+coverage options):</p>
+<div class="highlight-bash notranslate"><div class="highlight"><pre><span></span>pytest<span class="w">                                                    </span><span class="c1"># full suite, 100% coverage gate</span>
+pytest<span class="w"> </span>-m<span class="w"> </span><span class="s2">&quot;web or buttons or analysis or db or integration&quot;</span>
+pytest<span class="w"> </span>-m<span class="w"> </span>web<span class="w">                                             </span><span class="c1"># one group</span>
+</pre></div>
+</div>
+<p>The <code class="docutils literal notranslate"><span class="pre">db</span></code> and <code class="docutils literal notranslate"><span class="pre">integration</span></code> tests need a reachable PostgreSQL database
+(set the <code class="docutils literal notranslate"><span class="pre">PG*</span></code> variables first); they skip if it can’t be reached. See
+<a class="reference internal" href="testing.html"><span class="doc">Testing Guide</span></a> for details.</p>
+</section>
+<section id="building-these-docs">
+<h2>Building these docs<a class="headerlink" href="#building-these-docs" title="Link to this heading"></a></h2>
+<div class="highlight-bash notranslate"><div class="highlight"><pre><span></span>pip<span class="w"> </span>install<span class="w"> </span>-r<span class="w"> </span>docs/requirements.txt
+<span class="nb">cd</span><span class="w"> </span>docs
+make<span class="w"> </span>html<span class="w">                 </span><span class="c1"># Windows: .\make.bat html</span>
+<span class="c1"># open docs/build/html/index.html</span>
+</pre></div>
+</div>
+</section>
+</section>
+
+
+           </div>
+          </div>
+          <footer><div class="rst-footer-buttons" role="navigation" aria-label="Footer">
+        <a href="index.html" class="btn btn-neutral float-left" title="GradCafe Analytics" accesskey="p" rel="prev"><span class="fa fa-arrow-circle-left" aria-hidden="true"></span> Previous</a>
+        <a href="architecture.html" class="btn btn-neutral float-right" title="Architecture" accesskey="n" rel="next">Next <span class="fa fa-arrow-circle-right" aria-hidden="true"></span></a>
+    </div>
+
+  <hr/>
+
+  <div role="contentinfo">
+    <p>&#169; Copyright 2026, Shane Battles (sbattl15).</p>
+  </div>
+
+  Built with <a href="https://www.sphinx-doc.org/">Sphinx</a> using a
+    <a href="https://github.com/readthedocs/sphinx_rtd_theme">theme</a>
+    provided by <a href="https://readthedocs.org">Read the Docs</a>.
+   
+
+</footer>
+        </div>
+      </div>
+    </section>
+  </div>
+  <script>
+      jQuery(function () {
+          SphinxRtdTheme.Navigation.enable(true);
+      });
+  </script> 
+
+</body>
+</html>

@@ -1,0 +1,787 @@
+
+
+<!DOCTYPE html>
+<html class="writer-html5" lang="en" data-content_root="../">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>scrape &mdash; GradCafe Analytics</title>
+      <link rel="stylesheet" type="text/css" href="../_static/pygments.css?v=b86133f3" />
+      <link rel="stylesheet" type="text/css" href="../_static/css/theme.css?v=9edc463e" />
+
+  
+      <script src="../_static/jquery.js?v=5d32c60e"></script>
+      <script src="../_static/_sphinx_javascript_frameworks_compat.js?v=2cd50e6c"></script>
+      <script src="../_static/documentation_options.js?v=f2a433a1"></script>
+      <script src="../_static/doctools.js?v=fd6eb6e6"></script>
+      <script src="../_static/sphinx_highlight.js?v=6ffebe34"></script>
+    <script src="../_static/js/theme.js"></script>
+    <link rel="index" title="Index" href="../genindex.html" />
+    <link rel="search" title="Search" href="../search.html" /> 
+</head>
+
+<body class="wy-body-for-nav"> 
+  <div class="wy-grid-for-nav">
+    <nav data-toggle="wy-nav-shift" class="wy-nav-side">
+      <div class="wy-side-scroll">
+        <div class="wy-side-nav-search" >
+
+          
+          
+          <a href="../index.html" class="icon icon-home">
+            GradCafe Analytics
+          </a>
+<div role="search">
+  <form id="rtd-search-form" class="wy-form" action="../search.html" method="get">
+    <input type="text" name="q" placeholder="Search docs" aria-label="Search docs" />
+    <input type="hidden" name="check_keywords" value="yes" />
+    <input type="hidden" name="area" value="default" />
+  </form>
+</div>
+        </div><div class="wy-menu wy-menu-vertical" data-spy="affix" role="navigation" aria-label="Navigation menu">
+              <p class="caption" role="heading"><span class="caption-text">Guide</span></p>
+<ul>
+<li class="toctree-l1"><a class="reference internal" href="../overview.html">Overview &amp; Setup</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../architecture.html">Architecture</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../testing.html">Testing Guide</a></li>
+</ul>
+<p class="caption" role="heading"><span class="caption-text">API Reference</span></p>
+<ul>
+<li class="toctree-l1"><a class="reference internal" href="../api/index.html">API Reference</a></li>
+</ul>
+
+        </div>
+      </div>
+    </nav>
+
+    <section data-toggle="wy-nav-shift" class="wy-nav-content-wrap"><nav class="wy-nav-top" aria-label="Mobile navigation menu" >
+          <i data-toggle="wy-nav-top" class="fa fa-bars"></i>
+          <a href="../index.html">GradCafe Analytics</a>
+      </nav>
+
+      <div class="wy-nav-content">
+        <div class="rst-content">
+          <div role="navigation" aria-label="Page navigation">
+  <ul class="wy-breadcrumbs">
+      <li><a href="../index.html" class="icon icon-home" aria-label="Home"></a></li>
+          <li class="breadcrumb-item"><a href="index.html">Module code</a></li>
+      <li class="breadcrumb-item active">scrape</li>
+      <li class="wy-breadcrumbs-aside">
+      </li>
+  </ul>
+  <hr/>
+</div>
+          <div role="main" class="document" itemscope="itemscope" itemtype="http://schema.org/Article">
+           <div itemprop="articleBody">
+             
+  <h1>Source code for scrape</h1><div class="highlight"><pre>
+<span></span><span class="sd">&quot;&quot;&quot;Scrape applicant results from The GradCafe survey pages.</span>
+
+<span class="sd">This module is the **extract** stage of the ETL pipeline. It:</span>
+
+<span class="sd">* checks ``robots.txt`` before fetching anything and refuses to scrape if</span>
+<span class="sd">  the survey path is disallowed;</span>
+<span class="sd">* walks the survey listing one page at a time by following each page&#39;s</span>
+<span class="sd">  ``Next`` link (GradCafe paginates with an opaque cursor token);</span>
+<span class="sd">* parses each result row into a dictionary of *raw* text fields; and</span>
+<span class="sd">* writes the de-duplicated entries to a JSON file for :mod:`clean`.</span>
+
+<span class="sd">Scraping stops cleanly on HTTP 403/429/503, CAPTCHA/block pages, network</span>
+<span class="sd">errors, or when the page limit (:data:`MAX_PAGES`) is reached.</span>
+
+<span class="sd">Example::</span>
+
+<span class="sd">    python scrape.py --max-pages 50 --delay 3 --output applicant_data.json</span>
+<span class="sd">&quot;&quot;&quot;</span>
+
+<span class="kn">from</span><span class="w"> </span><span class="nn">__future__</span><span class="w"> </span><span class="kn">import</span> <span class="n">annotations</span>
+
+<span class="kn">import</span><span class="w"> </span><span class="nn">argparse</span>
+<span class="kn">import</span><span class="w"> </span><span class="nn">json</span>
+<span class="kn">import</span><span class="w"> </span><span class="nn">re</span>
+<span class="kn">import</span><span class="w"> </span><span class="nn">sys</span>
+<span class="kn">import</span><span class="w"> </span><span class="nn">time</span>
+<span class="kn">import</span><span class="w"> </span><span class="nn">urllib.error</span>
+<span class="kn">import</span><span class="w"> </span><span class="nn">urllib.parse</span>
+<span class="kn">import</span><span class="w"> </span><span class="nn">urllib.request</span>
+<span class="kn">import</span><span class="w"> </span><span class="nn">urllib.robotparser</span>
+<span class="kn">from</span><span class="w"> </span><span class="nn">typing</span><span class="w"> </span><span class="kn">import</span> <span class="n">Optional</span>
+
+<span class="kn">from</span><span class="w"> </span><span class="nn">bs4</span><span class="w"> </span><span class="kn">import</span> <span class="n">BeautifulSoup</span>
+
+<span class="c1"># ============================================================================</span>
+<span class="c1"># Configuration</span>
+<span class="c1"># ============================================================================</span>
+
+<span class="c1">#: Root URL of The GradCafe.</span>
+<span class="n">BASE_URL</span> <span class="o">=</span> <span class="s2">&quot;https://www.thegradcafe.com&quot;</span>
+<span class="c1">#: Path of the first survey listing page.</span>
+<span class="n">SURVEY_PATH</span> <span class="o">=</span> <span class="s2">&quot;/survey&quot;</span>
+<span class="c1">#: Fully-qualified robots.txt URL.</span>
+<span class="n">ROBOTS_URL</span> <span class="o">=</span> <span class="n">urllib</span><span class="o">.</span><span class="n">parse</span><span class="o">.</span><span class="n">urljoin</span><span class="p">(</span><span class="n">BASE_URL</span><span class="p">,</span> <span class="s2">&quot;/robots.txt&quot;</span><span class="p">)</span>
+
+<span class="c1">#: Identifying User-Agent sent with every request (includes a contact address).</span>
+<span class="n">USER_AGENT</span> <span class="o">=</span> <span class="p">(</span>
+    <span class="s2">&quot;JHU-SoftwareConcepts-Module2-Scraper/1.0 &quot;</span>
+    <span class="s2">&quot;(+mailto:sbattl15@jh.edu; educational coursework)&quot;</span>
+<span class="p">)</span>
+
+<span class="c1"># Total number of entries desired, teh scraper pulls 20 entries</span>
+<span class="c1"># Per page. The function runs until it hits the desired number</span>
+<span class="c1"># Of pages.</span>
+<span class="n">desired_entries</span> <span class="o">=</span> <span class="mi">40000</span>
+<span class="c1">#: Hard upper limit on pages fetched per run (``desired_entries // 20``).</span>
+<span class="n">MAX_PAGES</span> <span class="o">=</span> <span class="n">desired_entries</span> <span class="o">//</span> <span class="mi">20</span>
+
+<span class="c1">#: Socket timeout for each HTTP request, in seconds.</span>
+<span class="n">REQUEST_TIMEOUT_SECONDS</span> <span class="o">=</span> <span class="mi">15</span>
+<span class="c1">#: Politeness delay after each page request, in seconds.</span>
+<span class="n">DEFAULT_DELAY_SECONDS</span> <span class="o">=</span> <span class="mf">3.0</span>
+
+<span class="c1">#: How many trailing ``&lt;tr&gt;`` rows to scan for metadata/comments per result.</span>
+<span class="n">MAX_SIBLING_ROW_HOPS</span> <span class="o">=</span> <span class="mi">3</span>
+
+<span class="n">_STOP_STATUS_CODES</span> <span class="o">=</span> <span class="p">{</span><span class="mi">403</span><span class="p">,</span> <span class="mi">429</span><span class="p">,</span> <span class="mi">503</span><span class="p">}</span>
+
+<span class="n">_RESULT_ID_RE</span> <span class="o">=</span> <span class="n">re</span><span class="o">.</span><span class="n">compile</span><span class="p">(</span><span class="sa">r</span><span class="s2">&quot;/result/(\d+)&quot;</span><span class="p">,</span> <span class="n">re</span><span class="o">.</span><span class="n">IGNORECASE</span><span class="p">)</span>
+<span class="n">_NEXT_LINK_RE</span> <span class="o">=</span> <span class="n">re</span><span class="o">.</span><span class="n">compile</span><span class="p">(</span><span class="sa">r</span><span class="s2">&quot;^next$&quot;</span><span class="p">,</span> <span class="n">re</span><span class="o">.</span><span class="n">IGNORECASE</span><span class="p">)</span>
+
+
+<div class="viewcode-block" id="ScrapeStoppedError">
+<a class="viewcode-back" href="../api/scrape.html#scrape.ScrapeStoppedError">[docs]</a>
+<span class="k">class</span><span class="w"> </span><span class="nc">ScrapeStoppedError</span><span class="p">(</span><span class="ne">RuntimeError</span><span class="p">):</span>
+<span class="w">    </span><span class="sd">&quot;&quot;&quot;Raised when scraping must stop because of blocking/rate limiting.&quot;&quot;&quot;</span></div>
+
+
+
+<span class="c1"># ============================================================================</span>
+<span class="c1"># Small helpers</span>
+<span class="c1"># ============================================================================</span>
+
+
+<div class="viewcode-block" id="_clean_text">
+<a class="viewcode-back" href="../api/scrape.html#scrape._clean_text">[docs]</a>
+<span class="k">def</span><span class="w"> </span><span class="nf">_clean_text</span><span class="p">(</span><span class="n">value</span><span class="p">:</span> <span class="nb">object</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="nb">str</span><span class="p">:</span>
+<span class="w">    </span><span class="sd">&quot;&quot;&quot;Collapse runs of whitespace/newlines to single spaces and strip.</span>
+
+<span class="sd">    :param value: Any value; it is converted with :func:`str` first.</span>
+<span class="sd">    :returns: Cleaned text, or ``&quot;&quot;`` for falsy input.</span>
+<span class="sd">    :rtype: str</span>
+<span class="sd">    &quot;&quot;&quot;</span>
+    <span class="k">if</span> <span class="ow">not</span> <span class="n">value</span><span class="p">:</span>
+        <span class="k">return</span> <span class="s2">&quot;&quot;</span>
+    <span class="k">return</span> <span class="n">re</span><span class="o">.</span><span class="n">sub</span><span class="p">(</span><span class="sa">r</span><span class="s2">&quot;\s+&quot;</span><span class="p">,</span> <span class="s2">&quot; &quot;</span><span class="p">,</span> <span class="nb">str</span><span class="p">(</span><span class="n">value</span><span class="p">))</span><span class="o">.</span><span class="n">strip</span><span class="p">()</span></div>
+
+
+
+<span class="c1"># ============================================================================</span>
+<span class="c1"># Robots.txt</span>
+<span class="c1"># ============================================================================</span>
+
+
+<div class="viewcode-block" id="check_robots_txt">
+<a class="viewcode-back" href="../api/scrape.html#scrape.check_robots_txt">[docs]</a>
+<span class="k">def</span><span class="w"> </span><span class="nf">check_robots_txt</span><span class="p">(</span>
+    <span class="n">user_agent</span><span class="p">:</span> <span class="nb">str</span> <span class="o">=</span> <span class="n">USER_AGENT</span><span class="p">,</span>
+<span class="p">)</span> <span class="o">-&gt;</span> <span class="n">urllib</span><span class="o">.</span><span class="n">robotparser</span><span class="o">.</span><span class="n">RobotFileParser</span><span class="p">:</span>
+<span class="w">    </span><span class="sd">&quot;&quot;&quot;Download and parse GradCafe&#39;s ``robots.txt``.</span>
+
+<span class="sd">    The file is fetched manually with :data:`USER_AGENT` (rather than</span>
+<span class="sd">    :meth:`RobotFileParser.read`, which uses urllib&#39;s default agent and is</span>
+<span class="sd">    often blocked). A 401/403 is treated as *disallow all*; any other 4xx as</span>
+<span class="sd">    *allow all*, mirroring the standard library&#39;s behaviour.</span>
+
+<span class="sd">    :param user_agent: User-Agent to send when fetching ``robots.txt``.</span>
+<span class="sd">    :returns: A populated robots parser.</span>
+<span class="sd">    :rtype: urllib.robotparser.RobotFileParser</span>
+<span class="sd">    :raises urllib.error.HTTPError: For 5xx responses.</span>
+<span class="sd">    :raises urllib.error.URLError: If the host cannot be reached.</span>
+<span class="sd">    &quot;&quot;&quot;</span>
+    <span class="n">parser</span> <span class="o">=</span> <span class="n">urllib</span><span class="o">.</span><span class="n">robotparser</span><span class="o">.</span><span class="n">RobotFileParser</span><span class="p">()</span>
+    <span class="n">parser</span><span class="o">.</span><span class="n">set_url</span><span class="p">(</span><span class="n">ROBOTS_URL</span><span class="p">)</span>
+
+    <span class="c1"># RobotFileParser.read() fetches robots.txt with urllib&#39;s bare default</span>
+    <span class="c1"># User-Agent (&quot;Python-urllib/3.x&quot;), which some sites&#39; bot protection</span>
+    <span class="c1"># blocks with a 403 -- and a blocked robots.txt fetch makes can_fetch()</span>
+    <span class="c1"># return False for *every* URL afterward, even when robots.txt itself</span>
+    <span class="c1"># would have allowed scraping. Fetch it manually with the same</span>
+    <span class="c1"># User-Agent the rest of the scraper uses, and feed the content to the</span>
+    <span class="c1"># parser directly instead.</span>
+    <span class="n">request</span> <span class="o">=</span> <span class="n">urllib</span><span class="o">.</span><span class="n">request</span><span class="o">.</span><span class="n">Request</span><span class="p">(</span>
+        <span class="n">ROBOTS_URL</span><span class="p">,</span>
+        <span class="n">headers</span><span class="o">=</span><span class="p">{</span>
+            <span class="s2">&quot;User-Agent&quot;</span><span class="p">:</span> <span class="n">user_agent</span><span class="p">,</span>
+            <span class="s2">&quot;Accept-Language&quot;</span><span class="p">:</span> <span class="s2">&quot;en-US,en;q=0.9&quot;</span><span class="p">,</span>
+        <span class="p">},</span>
+    <span class="p">)</span>
+    <span class="k">try</span><span class="p">:</span>
+        <span class="k">with</span> <span class="n">urllib</span><span class="o">.</span><span class="n">request</span><span class="o">.</span><span class="n">urlopen</span><span class="p">(</span><span class="n">request</span><span class="p">,</span> <span class="n">timeout</span><span class="o">=</span><span class="n">REQUEST_TIMEOUT_SECONDS</span><span class="p">)</span> <span class="k">as</span> <span class="n">response</span><span class="p">:</span>
+            <span class="n">charset</span> <span class="o">=</span> <span class="n">response</span><span class="o">.</span><span class="n">headers</span><span class="o">.</span><span class="n">get_content_charset</span><span class="p">()</span> <span class="ow">or</span> <span class="s2">&quot;utf-8&quot;</span>
+            <span class="n">content</span> <span class="o">=</span> <span class="n">response</span><span class="o">.</span><span class="n">read</span><span class="p">()</span><span class="o">.</span><span class="n">decode</span><span class="p">(</span><span class="n">charset</span><span class="p">,</span> <span class="n">errors</span><span class="o">=</span><span class="s2">&quot;replace&quot;</span><span class="p">)</span>
+        <span class="n">parser</span><span class="o">.</span><span class="n">parse</span><span class="p">(</span><span class="n">content</span><span class="o">.</span><span class="n">splitlines</span><span class="p">())</span>
+    <span class="k">except</span> <span class="n">urllib</span><span class="o">.</span><span class="n">error</span><span class="o">.</span><span class="n">HTTPError</span> <span class="k">as</span> <span class="n">exc</span><span class="p">:</span>
+        <span class="k">if</span> <span class="n">exc</span><span class="o">.</span><span class="n">code</span> <span class="ow">in</span> <span class="p">(</span><span class="mi">401</span><span class="p">,</span> <span class="mi">403</span><span class="p">):</span>
+            <span class="n">parser</span><span class="o">.</span><span class="n">disallow_all</span> <span class="o">=</span> <span class="kc">True</span>
+        <span class="k">elif</span> <span class="mi">400</span> <span class="o">&lt;=</span> <span class="n">exc</span><span class="o">.</span><span class="n">code</span> <span class="o">&lt;</span> <span class="mi">500</span><span class="p">:</span>
+            <span class="n">parser</span><span class="o">.</span><span class="n">allow_all</span> <span class="o">=</span> <span class="kc">True</span>
+        <span class="k">else</span><span class="p">:</span>
+            <span class="k">raise</span>
+
+    <span class="k">return</span> <span class="n">parser</span></div>
+
+
+
+<div class="viewcode-block" id="can_fetch">
+<a class="viewcode-back" href="../api/scrape.html#scrape.can_fetch">[docs]</a>
+<span class="k">def</span><span class="w"> </span><span class="nf">can_fetch</span><span class="p">(</span>
+    <span class="n">url</span><span class="p">:</span> <span class="nb">str</span><span class="p">,</span>
+    <span class="n">parser</span><span class="p">:</span> <span class="n">urllib</span><span class="o">.</span><span class="n">robotparser</span><span class="o">.</span><span class="n">RobotFileParser</span><span class="p">,</span>
+    <span class="n">user_agent</span><span class="p">:</span> <span class="nb">str</span> <span class="o">=</span> <span class="n">USER_AGENT</span><span class="p">,</span>
+<span class="p">)</span> <span class="o">-&gt;</span> <span class="nb">bool</span><span class="p">:</span>
+<span class="w">    </span><span class="sd">&quot;&quot;&quot;Return whether ``robots.txt`` permits fetching ``url``.</span>
+
+<span class="sd">    :param url: URL to check.</span>
+<span class="sd">    :param parser: Parser returned by :func:`check_robots_txt`.</span>
+<span class="sd">    :param user_agent: User-Agent to evaluate the rules for.</span>
+<span class="sd">    :returns: ``True`` if fetching is allowed.</span>
+<span class="sd">    :rtype: bool</span>
+<span class="sd">    &quot;&quot;&quot;</span>
+    <span class="k">return</span> <span class="n">parser</span><span class="o">.</span><span class="n">can_fetch</span><span class="p">(</span><span class="n">user_agent</span><span class="p">,</span> <span class="n">url</span><span class="p">)</span></div>
+
+
+
+<div class="viewcode-block" id="confirm_scraping_permitted">
+<a class="viewcode-back" href="../api/scrape.html#scrape.confirm_scraping_permitted">[docs]</a>
+<span class="k">def</span><span class="w"> </span><span class="nf">confirm_scraping_permitted</span><span class="p">(</span>
+    <span class="n">user_agent</span><span class="p">:</span> <span class="nb">str</span> <span class="o">=</span> <span class="n">USER_AGENT</span><span class="p">,</span>
+<span class="p">)</span> <span class="o">-&gt;</span> <span class="n">urllib</span><span class="o">.</span><span class="n">robotparser</span><span class="o">.</span><span class="n">RobotFileParser</span><span class="p">:</span>
+<span class="w">    </span><span class="sd">&quot;&quot;&quot;Verify that scraping the survey page is allowed before starting.</span>
+
+<span class="sd">    Prints the result and any ``Crawl-delay`` the site requests.</span>
+
+<span class="sd">    :param user_agent: User-Agent the scraper will use.</span>
+<span class="sd">    :returns: The robots parser, reused for per-page checks.</span>
+<span class="sd">    :rtype: urllib.robotparser.RobotFileParser</span>
+<span class="sd">    :raises RuntimeError: If ``robots.txt`` cannot be retrieved.</span>
+<span class="sd">    :raises PermissionError: If ``robots.txt`` disallows the survey path.</span>
+<span class="sd">    &quot;&quot;&quot;</span>
+    <span class="n">survey_url</span> <span class="o">=</span> <span class="n">urllib</span><span class="o">.</span><span class="n">parse</span><span class="o">.</span><span class="n">urljoin</span><span class="p">(</span><span class="n">BASE_URL</span><span class="p">,</span> <span class="n">SURVEY_PATH</span><span class="p">)</span>
+
+    <span class="nb">print</span><span class="p">(</span>
+        <span class="sa">f</span><span class="s2">&quot;[robots.txt] Checking </span><span class="si">{</span><span class="n">ROBOTS_URL</span><span class="si">}</span><span class="s2"> for permission to fetch &quot;</span>
+        <span class="sa">f</span><span class="s2">&quot;</span><span class="si">{</span><span class="n">survey_url</span><span class="si">}</span><span class="s2"> as &#39;</span><span class="si">{</span><span class="n">user_agent</span><span class="si">}</span><span class="s2">&#39; ...&quot;</span>
+    <span class="p">)</span>
+
+    <span class="k">try</span><span class="p">:</span>
+        <span class="n">parser</span> <span class="o">=</span> <span class="n">check_robots_txt</span><span class="p">(</span><span class="n">user_agent</span><span class="p">)</span>
+    <span class="k">except</span> <span class="n">urllib</span><span class="o">.</span><span class="n">error</span><span class="o">.</span><span class="n">URLError</span> <span class="k">as</span> <span class="n">exc</span><span class="p">:</span>
+        <span class="k">raise</span> <span class="ne">RuntimeError</span><span class="p">(</span><span class="sa">f</span><span class="s2">&quot;Could not retrieve robots.txt: </span><span class="si">{</span><span class="n">exc</span><span class="si">}</span><span class="s2">&quot;</span><span class="p">)</span> <span class="kn">from</span><span class="w"> </span><span class="nn">exc</span>
+
+    <span class="k">if</span> <span class="ow">not</span> <span class="n">can_fetch</span><span class="p">(</span><span class="n">survey_url</span><span class="p">,</span> <span class="n">parser</span><span class="p">,</span> <span class="n">user_agent</span><span class="p">):</span>
+        <span class="k">raise</span> <span class="ne">PermissionError</span><span class="p">(</span>
+            <span class="sa">f</span><span class="s2">&quot;robots.txt at </span><span class="si">{</span><span class="n">ROBOTS_URL</span><span class="si">}</span><span class="s2"> disallows fetching &quot;</span>
+            <span class="sa">f</span><span class="s2">&quot;</span><span class="si">{</span><span class="n">survey_url</span><span class="si">}</span><span class="s2"> for this user agent. Refusing to scrape.&quot;</span>
+        <span class="p">)</span>
+
+    <span class="nb">print</span><span class="p">(</span><span class="sa">f</span><span class="s2">&quot;[robots.txt] Permission CONFIRMED for </span><span class="si">{</span><span class="n">survey_url</span><span class="si">}</span><span class="s2">.&quot;</span><span class="p">)</span>
+
+    <span class="n">crawl_delay</span> <span class="o">=</span> <span class="n">parser</span><span class="o">.</span><span class="n">crawl_delay</span><span class="p">(</span><span class="n">user_agent</span><span class="p">)</span>
+    <span class="k">if</span> <span class="n">crawl_delay</span><span class="p">:</span>
+        <span class="nb">print</span><span class="p">(</span><span class="sa">f</span><span class="s2">&quot;[robots.txt] Site requests a Crawl-delay of </span><span class="si">{</span><span class="n">crawl_delay</span><span class="si">}</span><span class="s2">s.&quot;</span><span class="p">)</span>
+
+    <span class="k">return</span> <span class="n">parser</span></div>
+
+
+
+<span class="c1"># ============================================================================</span>
+<span class="c1"># HTTP</span>
+<span class="c1"># ============================================================================</span>
+
+
+<div class="viewcode-block" id="_fetch_html">
+<a class="viewcode-back" href="../api/scrape.html#scrape._fetch_html">[docs]</a>
+<span class="k">def</span><span class="w"> </span><span class="nf">_fetch_html</span><span class="p">(</span><span class="n">url</span><span class="p">:</span> <span class="nb">str</span><span class="p">,</span> <span class="n">timeout</span><span class="p">:</span> <span class="nb">int</span> <span class="o">=</span> <span class="n">REQUEST_TIMEOUT_SECONDS</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="nb">str</span><span class="p">:</span>
+<span class="w">    </span><span class="sd">&quot;&quot;&quot;Fetch ``url`` and return its decoded HTML body.</span>
+
+<span class="sd">    :param url: Page to download.</span>
+<span class="sd">    :param timeout: Socket timeout in seconds.</span>
+<span class="sd">    :returns: Response body decoded with the declared charset (UTF-8 default).</span>
+<span class="sd">    :rtype: str</span>
+<span class="sd">    :raises ScrapeStoppedError: On HTTP 403, 429 or 503.</span>
+<span class="sd">    :raises urllib.error.HTTPError: On any other HTTP error.</span>
+<span class="sd">    &quot;&quot;&quot;</span>
+    <span class="n">request</span> <span class="o">=</span> <span class="n">urllib</span><span class="o">.</span><span class="n">request</span><span class="o">.</span><span class="n">Request</span><span class="p">(</span>
+        <span class="n">url</span><span class="p">,</span>
+        <span class="n">headers</span><span class="o">=</span><span class="p">{</span>
+            <span class="s2">&quot;User-Agent&quot;</span><span class="p">:</span> <span class="n">USER_AGENT</span><span class="p">,</span>
+            <span class="s2">&quot;Accept-Language&quot;</span><span class="p">:</span> <span class="s2">&quot;en-US,en;q=0.9&quot;</span><span class="p">,</span>
+        <span class="p">},</span>
+    <span class="p">)</span>
+
+    <span class="k">try</span><span class="p">:</span>
+        <span class="k">with</span> <span class="n">urllib</span><span class="o">.</span><span class="n">request</span><span class="o">.</span><span class="n">urlopen</span><span class="p">(</span><span class="n">request</span><span class="p">,</span> <span class="n">timeout</span><span class="o">=</span><span class="n">timeout</span><span class="p">)</span> <span class="k">as</span> <span class="n">response</span><span class="p">:</span>
+            <span class="n">charset</span> <span class="o">=</span> <span class="n">response</span><span class="o">.</span><span class="n">headers</span><span class="o">.</span><span class="n">get_content_charset</span><span class="p">()</span> <span class="ow">or</span> <span class="s2">&quot;utf-8&quot;</span>
+            <span class="k">return</span> <span class="n">response</span><span class="o">.</span><span class="n">read</span><span class="p">()</span><span class="o">.</span><span class="n">decode</span><span class="p">(</span><span class="n">charset</span><span class="p">,</span> <span class="n">errors</span><span class="o">=</span><span class="s2">&quot;replace&quot;</span><span class="p">)</span>
+    <span class="k">except</span> <span class="n">urllib</span><span class="o">.</span><span class="n">error</span><span class="o">.</span><span class="n">HTTPError</span> <span class="k">as</span> <span class="n">exc</span><span class="p">:</span>
+        <span class="k">if</span> <span class="n">exc</span><span class="o">.</span><span class="n">code</span> <span class="ow">in</span> <span class="n">_STOP_STATUS_CODES</span><span class="p">:</span>
+            <span class="k">raise</span> <span class="n">ScrapeStoppedError</span><span class="p">(</span>
+                <span class="sa">f</span><span class="s2">&quot;Server returned HTTP </span><span class="si">{</span><span class="n">exc</span><span class="o">.</span><span class="n">code</span><span class="si">}</span><span class="s2"> for </span><span class="si">{</span><span class="n">url</span><span class="si">}</span><span class="s2">; stopping.&quot;</span>
+            <span class="p">)</span> <span class="kn">from</span><span class="w"> </span><span class="nn">exc</span>
+        <span class="k">raise</span></div>
+
+
+
+<div class="viewcode-block" id="_looks_blocked">
+<a class="viewcode-back" href="../api/scrape.html#scrape._looks_blocked">[docs]</a>
+<span class="k">def</span><span class="w"> </span><span class="nf">_looks_blocked</span><span class="p">(</span><span class="n">html</span><span class="p">:</span> <span class="nb">str</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="nb">bool</span><span class="p">:</span>
+<span class="w">    </span><span class="sd">&quot;&quot;&quot;Heuristically detect a CAPTCHA or bot-block page.</span>
+
+<span class="sd">    :param html: Page HTML.</span>
+<span class="sd">    :returns: ``True`` if the page contains a known block marker</span>
+<span class="sd">        (``captcha``, ``access denied``, ``are you a robot``,</span>
+<span class="sd">        ``unusual traffic``).</span>
+<span class="sd">    :rtype: bool</span>
+<span class="sd">    &quot;&quot;&quot;</span>
+    <span class="n">lowered</span> <span class="o">=</span> <span class="n">html</span><span class="o">.</span><span class="n">lower</span><span class="p">()</span>
+    <span class="n">block_markers</span> <span class="o">=</span> <span class="p">(</span>
+        <span class="s2">&quot;captcha&quot;</span><span class="p">,</span>
+        <span class="s2">&quot;access denied&quot;</span><span class="p">,</span>
+        <span class="s2">&quot;are you a robot&quot;</span><span class="p">,</span>
+        <span class="s2">&quot;unusual traffic&quot;</span><span class="p">,</span>
+    <span class="p">)</span>
+    <span class="k">return</span> <span class="nb">any</span><span class="p">(</span><span class="n">marker</span> <span class="ow">in</span> <span class="n">lowered</span> <span class="k">for</span> <span class="n">marker</span> <span class="ow">in</span> <span class="n">block_markers</span><span class="p">)</span></div>
+
+
+
+<span class="c1"># ============================================================================</span>
+<span class="c1"># Page parsing</span>
+<span class="c1"># ============================================================================</span>
+
+
+<div class="viewcode-block" id="_row_cell_text">
+<a class="viewcode-back" href="../api/scrape.html#scrape._row_cell_text">[docs]</a>
+<span class="k">def</span><span class="w"> </span><span class="nf">_row_cell_text</span><span class="p">(</span><span class="n">cells</span><span class="p">:</span> <span class="nb">list</span><span class="p">,</span> <span class="n">index</span><span class="p">:</span> <span class="nb">int</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="nb">str</span><span class="p">:</span>
+<span class="w">    </span><span class="sd">&quot;&quot;&quot;Return the cleaned text of ``cells[index]``, or ``&quot;&quot;`` if absent.</span>
+
+<span class="sd">    :param cells: ``&lt;td&gt;`` elements of a table row.</span>
+<span class="sd">    :param index: Zero-based column index.</span>
+<span class="sd">    :rtype: str</span>
+<span class="sd">    &quot;&quot;&quot;</span>
+    <span class="k">if</span> <span class="nb">len</span><span class="p">(</span><span class="n">cells</span><span class="p">)</span> <span class="o">&gt;</span> <span class="n">index</span><span class="p">:</span>
+        <span class="k">return</span> <span class="n">_clean_text</span><span class="p">(</span><span class="n">cells</span><span class="p">[</span><span class="n">index</span><span class="p">]</span><span class="o">.</span><span class="n">get_text</span><span class="p">(</span><span class="s2">&quot; &quot;</span><span class="p">,</span> <span class="n">strip</span><span class="o">=</span><span class="kc">True</span><span class="p">))</span>
+    <span class="k">return</span> <span class="s2">&quot;&quot;</span></div>
+
+
+
+<div class="viewcode-block" id="_collect_additional_row_text">
+<a class="viewcode-back" href="../api/scrape.html#scrape._collect_additional_row_text">[docs]</a>
+<span class="k">def</span><span class="w"> </span><span class="nf">_collect_additional_row_text</span><span class="p">(</span><span class="n">main_row</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="nb">str</span><span class="p">:</span>
+<span class="w">    </span><span class="sd">&quot;&quot;&quot;Collect text from the metadata/comment rows that follow a result row.</span>
+
+<span class="sd">    Scans up to :data:`MAX_SIBLING_ROW_HOPS` following ``&lt;tr&gt;`` siblings and</span>
+<span class="sd">    stops early at the next result row.</span>
+
+<span class="sd">    :param main_row: The BeautifulSoup ``&lt;tr&gt;`` holding the result link.</span>
+<span class="sd">    :returns: Space-joined text of the trailing rows.</span>
+<span class="sd">    :rtype: str</span>
+<span class="sd">    &quot;&quot;&quot;</span>
+    <span class="n">additional_text</span><span class="p">:</span> <span class="nb">list</span><span class="p">[</span><span class="nb">str</span><span class="p">]</span> <span class="o">=</span> <span class="p">[]</span>
+    <span class="n">sibling</span> <span class="o">=</span> <span class="n">main_row</span><span class="o">.</span><span class="n">find_next_sibling</span><span class="p">(</span><span class="s2">&quot;tr&quot;</span><span class="p">)</span>
+    <span class="n">hops</span> <span class="o">=</span> <span class="mi">0</span>
+
+    <span class="k">while</span> <span class="n">sibling</span> <span class="ow">is</span> <span class="ow">not</span> <span class="kc">None</span> <span class="ow">and</span> <span class="n">hops</span> <span class="o">&lt;</span> <span class="n">MAX_SIBLING_ROW_HOPS</span><span class="p">:</span>
+        <span class="k">if</span> <span class="n">sibling</span><span class="o">.</span><span class="n">find</span><span class="p">(</span><span class="s2">&quot;a&quot;</span><span class="p">,</span> <span class="n">href</span><span class="o">=</span><span class="n">_RESULT_ID_RE</span><span class="p">):</span>
+            <span class="k">break</span>
+
+        <span class="n">text</span> <span class="o">=</span> <span class="n">_clean_text</span><span class="p">(</span><span class="n">sibling</span><span class="o">.</span><span class="n">get_text</span><span class="p">(</span><span class="s2">&quot; &quot;</span><span class="p">,</span> <span class="n">strip</span><span class="o">=</span><span class="kc">True</span><span class="p">))</span>
+        <span class="k">if</span> <span class="n">text</span><span class="p">:</span>
+            <span class="n">additional_text</span><span class="o">.</span><span class="n">append</span><span class="p">(</span><span class="n">text</span><span class="p">)</span>
+
+        <span class="n">sibling</span> <span class="o">=</span> <span class="n">sibling</span><span class="o">.</span><span class="n">find_next_sibling</span><span class="p">(</span><span class="s2">&quot;tr&quot;</span><span class="p">)</span>
+        <span class="n">hops</span> <span class="o">+=</span> <span class="mi">1</span>
+
+    <span class="k">return</span> <span class="s2">&quot; &quot;</span><span class="o">.</span><span class="n">join</span><span class="p">(</span><span class="n">additional_text</span><span class="p">)</span></div>
+
+
+
+<div class="viewcode-block" id="_parse_page">
+<a class="viewcode-back" href="../api/scrape.html#scrape._parse_page">[docs]</a>
+<span class="k">def</span><span class="w"> </span><span class="nf">_parse_page</span><span class="p">(</span><span class="n">html</span><span class="p">:</span> <span class="nb">str</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="nb">list</span><span class="p">[</span><span class="nb">dict</span><span class="p">]:</span>
+<span class="w">    </span><span class="sd">&quot;&quot;&quot;Parse one survey listing page into raw entry dictionaries.</span>
+
+<span class="sd">    Each entry has the keys ``entry_id``, ``raw_school_text``,</span>
+<span class="sd">    ``raw_program_text``, ``raw_added_on_text``, ``raw_decision_text``,</span>
+<span class="sd">    ``raw_meta_text``, ``raw_comment_text`` and ``url``.</span>
+
+<span class="sd">    :param html: Survey page HTML.</span>
+<span class="sd">    :returns: One dictionary per ``/result/&lt;id&gt;`` link found in a table row.</span>
+<span class="sd">    :rtype: list[dict]</span>
+<span class="sd">    &quot;&quot;&quot;</span>
+    <span class="n">soup</span> <span class="o">=</span> <span class="n">BeautifulSoup</span><span class="p">(</span><span class="n">html</span><span class="p">,</span> <span class="s2">&quot;html.parser&quot;</span><span class="p">)</span>
+    <span class="n">entries</span><span class="p">:</span> <span class="nb">list</span><span class="p">[</span><span class="nb">dict</span><span class="p">]</span> <span class="o">=</span> <span class="p">[]</span>
+
+    <span class="k">for</span> <span class="n">link</span> <span class="ow">in</span> <span class="n">soup</span><span class="o">.</span><span class="n">find_all</span><span class="p">(</span><span class="s2">&quot;a&quot;</span><span class="p">,</span> <span class="n">href</span><span class="o">=</span><span class="n">_RESULT_ID_RE</span><span class="p">):</span>
+        <span class="n">main_row</span> <span class="o">=</span> <span class="n">link</span><span class="o">.</span><span class="n">find_parent</span><span class="p">(</span><span class="s2">&quot;tr&quot;</span><span class="p">)</span>
+        <span class="k">if</span> <span class="n">main_row</span> <span class="ow">is</span> <span class="kc">None</span><span class="p">:</span>
+            <span class="k">continue</span>
+
+        <span class="n">cells</span> <span class="o">=</span> <span class="n">main_row</span><span class="o">.</span><span class="n">find_all</span><span class="p">(</span><span class="s2">&quot;td&quot;</span><span class="p">)</span>
+
+        <span class="n">href</span> <span class="o">=</span> <span class="n">link</span><span class="o">.</span><span class="n">get</span><span class="p">(</span><span class="s2">&quot;href&quot;</span><span class="p">,</span> <span class="s2">&quot;&quot;</span><span class="p">)</span>
+        <span class="n">id_match</span> <span class="o">=</span> <span class="n">_RESULT_ID_RE</span><span class="o">.</span><span class="n">search</span><span class="p">(</span><span class="n">href</span><span class="p">)</span>
+        <span class="n">result_id</span> <span class="o">=</span> <span class="n">id_match</span><span class="o">.</span><span class="n">group</span><span class="p">(</span><span class="mi">1</span><span class="p">)</span> <span class="k">if</span> <span class="n">id_match</span> <span class="k">else</span> <span class="s2">&quot;&quot;</span>
+
+        <span class="n">school_text</span> <span class="o">=</span> <span class="n">_row_cell_text</span><span class="p">(</span><span class="n">cells</span><span class="p">,</span> <span class="mi">0</span><span class="p">)</span>
+        <span class="n">program_text</span> <span class="o">=</span> <span class="n">_row_cell_text</span><span class="p">(</span><span class="n">cells</span><span class="p">,</span> <span class="mi">1</span><span class="p">)</span>
+        <span class="n">added_on_text</span> <span class="o">=</span> <span class="n">_row_cell_text</span><span class="p">(</span><span class="n">cells</span><span class="p">,</span> <span class="mi">2</span><span class="p">)</span>
+        <span class="n">decision_text</span> <span class="o">=</span> <span class="n">_row_cell_text</span><span class="p">(</span><span class="n">cells</span><span class="p">,</span> <span class="mi">3</span><span class="p">)</span>
+        <span class="n">combined_meta</span> <span class="o">=</span> <span class="n">_collect_additional_row_text</span><span class="p">(</span><span class="n">main_row</span><span class="p">)</span>
+
+        <span class="n">result_url</span> <span class="o">=</span> <span class="p">(</span>
+            <span class="n">urllib</span><span class="o">.</span><span class="n">parse</span><span class="o">.</span><span class="n">urljoin</span><span class="p">(</span><span class="n">BASE_URL</span><span class="p">,</span> <span class="sa">f</span><span class="s2">&quot;/result/</span><span class="si">{</span><span class="n">result_id</span><span class="si">}</span><span class="s2">&quot;</span><span class="p">)</span> <span class="k">if</span> <span class="n">result_id</span> <span class="k">else</span> <span class="s2">&quot;&quot;</span>
+        <span class="p">)</span>
+
+        <span class="n">entries</span><span class="o">.</span><span class="n">append</span><span class="p">(</span>
+            <span class="p">{</span>
+                <span class="s2">&quot;entry_id&quot;</span><span class="p">:</span> <span class="n">result_id</span><span class="p">,</span>
+                <span class="s2">&quot;raw_school_text&quot;</span><span class="p">:</span> <span class="n">school_text</span><span class="p">,</span>
+                <span class="s2">&quot;raw_program_text&quot;</span><span class="p">:</span> <span class="n">program_text</span><span class="p">,</span>
+                <span class="s2">&quot;raw_added_on_text&quot;</span><span class="p">:</span> <span class="n">added_on_text</span><span class="p">,</span>
+                <span class="s2">&quot;raw_decision_text&quot;</span><span class="p">:</span> <span class="n">decision_text</span><span class="p">,</span>
+                <span class="s2">&quot;raw_meta_text&quot;</span><span class="p">:</span> <span class="n">combined_meta</span><span class="p">,</span>
+                <span class="s2">&quot;raw_comment_text&quot;</span><span class="p">:</span> <span class="n">combined_meta</span><span class="p">,</span>
+                <span class="s2">&quot;url&quot;</span><span class="p">:</span> <span class="n">result_url</span><span class="p">,</span>
+            <span class="p">}</span>
+        <span class="p">)</span>
+
+    <span class="k">return</span> <span class="n">entries</span></div>
+
+
+
+<div class="viewcode-block" id="_find_next_page_url">
+<a class="viewcode-back" href="../api/scrape.html#scrape._find_next_page_url">[docs]</a>
+<span class="k">def</span><span class="w"> </span><span class="nf">_find_next_page_url</span><span class="p">(</span><span class="n">html</span><span class="p">:</span> <span class="nb">str</span><span class="p">,</span> <span class="n">current_url</span><span class="p">:</span> <span class="nb">str</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="n">Optional</span><span class="p">[</span><span class="nb">str</span><span class="p">]:</span>
+<span class="w">    </span><span class="sd">&quot;&quot;&quot;Find the URL of the next page of results.</span>
+
+<span class="sd">    GradCafe paginates with an opaque ``?cursor=...`` token rather than a</span>
+<span class="sd">    plain page number -- the only way to know page N+1&#39;s URL is to read</span>
+<span class="sd">    it out of the ``Next`` link in page N&#39;s HTML.</span>
+
+<span class="sd">    :param html: Current page HTML.</span>
+<span class="sd">    :param current_url: URL of the current page (for resolving relative links).</span>
+<span class="sd">    :returns: Absolute URL of the next page, or ``None`` on the last page.</span>
+<span class="sd">    :rtype: str or None</span>
+<span class="sd">    &quot;&quot;&quot;</span>
+    <span class="n">soup</span> <span class="o">=</span> <span class="n">BeautifulSoup</span><span class="p">(</span><span class="n">html</span><span class="p">,</span> <span class="s2">&quot;html.parser&quot;</span><span class="p">)</span>
+
+    <span class="k">for</span> <span class="n">link</span> <span class="ow">in</span> <span class="n">soup</span><span class="o">.</span><span class="n">find_all</span><span class="p">(</span><span class="s2">&quot;a&quot;</span><span class="p">,</span> <span class="n">href</span><span class="o">=</span><span class="kc">True</span><span class="p">):</span>
+        <span class="n">text</span> <span class="o">=</span> <span class="n">_clean_text</span><span class="p">(</span><span class="n">link</span><span class="o">.</span><span class="n">get_text</span><span class="p">(</span><span class="s2">&quot; &quot;</span><span class="p">,</span> <span class="n">strip</span><span class="o">=</span><span class="kc">True</span><span class="p">))</span>
+        <span class="k">if</span> <span class="n">_NEXT_LINK_RE</span><span class="o">.</span><span class="n">fullmatch</span><span class="p">(</span><span class="n">text</span><span class="p">):</span>
+            <span class="k">return</span> <span class="n">urllib</span><span class="o">.</span><span class="n">parse</span><span class="o">.</span><span class="n">urljoin</span><span class="p">(</span><span class="n">current_url</span><span class="p">,</span> <span class="n">link</span><span class="p">[</span><span class="s2">&quot;href&quot;</span><span class="p">])</span>
+
+    <span class="k">return</span> <span class="kc">None</span></div>
+
+
+
+<span class="c1"># ============================================================================</span>
+<span class="c1"># Fetching a single page</span>
+<span class="c1"># ============================================================================</span>
+
+
+<div class="viewcode-block" id="_fetch_and_parse_page">
+<a class="viewcode-back" href="../api/scrape.html#scrape._fetch_and_parse_page">[docs]</a>
+<span class="k">def</span><span class="w"> </span><span class="nf">_fetch_and_parse_page</span><span class="p">(</span>
+    <span class="n">url</span><span class="p">:</span> <span class="nb">str</span><span class="p">,</span>
+    <span class="n">delay_seconds</span><span class="p">:</span> <span class="nb">float</span><span class="p">,</span>
+    <span class="n">robots_parser</span><span class="p">:</span> <span class="n">urllib</span><span class="o">.</span><span class="n">robotparser</span><span class="o">.</span><span class="n">RobotFileParser</span><span class="p">,</span>
+<span class="p">)</span> <span class="o">-&gt;</span> <span class="nb">tuple</span><span class="p">[</span><span class="nb">list</span><span class="p">[</span><span class="nb">dict</span><span class="p">],</span> <span class="n">Optional</span><span class="p">[</span><span class="nb">str</span><span class="p">]]:</span>
+<span class="w">    </span><span class="sd">&quot;&quot;&quot;Fetch, validate and parse a single survey page, then sleep.</span>
+
+<span class="sd">    :param url: Page URL.</span>
+<span class="sd">    :param delay_seconds: Seconds to sleep after the request.</span>
+<span class="sd">    :param robots_parser: Parser used to re-check permission for ``url``.</span>
+<span class="sd">    :returns: ``(entries, next_url)``.</span>
+<span class="sd">    :rtype: tuple[list[dict], str or None]</span>
+<span class="sd">    :raises PermissionError: If ``robots.txt`` disallows ``url``.</span>
+<span class="sd">    :raises ScrapeStoppedError: If the server blocks or rate-limits us.</span>
+<span class="sd">    &quot;&quot;&quot;</span>
+    <span class="k">if</span> <span class="ow">not</span> <span class="n">can_fetch</span><span class="p">(</span><span class="n">url</span><span class="p">,</span> <span class="n">robots_parser</span><span class="p">,</span> <span class="n">USER_AGENT</span><span class="p">):</span>
+        <span class="k">raise</span> <span class="ne">PermissionError</span><span class="p">(</span><span class="sa">f</span><span class="s2">&quot;robots.txt disallows </span><span class="si">{</span><span class="n">url</span><span class="si">}</span><span class="s2">&quot;</span><span class="p">)</span>
+
+    <span class="n">html</span> <span class="o">=</span> <span class="n">_fetch_html</span><span class="p">(</span><span class="n">url</span><span class="p">)</span>
+
+    <span class="k">if</span> <span class="n">_looks_blocked</span><span class="p">(</span><span class="n">html</span><span class="p">):</span>
+        <span class="k">raise</span> <span class="n">ScrapeStoppedError</span><span class="p">(</span><span class="sa">f</span><span class="s2">&quot;</span><span class="si">{</span><span class="n">url</span><span class="si">}</span><span class="s2"> appears to be a CAPTCHA/block page.&quot;</span><span class="p">)</span>
+
+    <span class="n">entries</span> <span class="o">=</span> <span class="n">_parse_page</span><span class="p">(</span><span class="n">html</span><span class="p">)</span>
+    <span class="n">next_url</span> <span class="o">=</span> <span class="n">_find_next_page_url</span><span class="p">(</span><span class="n">html</span><span class="p">,</span> <span class="n">url</span><span class="p">)</span>
+
+    <span class="nb">print</span><span class="p">(</span><span class="sa">f</span><span class="s2">&quot;[fetch] </span><span class="si">{</span><span class="n">url</span><span class="si">}</span><span class="s2">: </span><span class="si">{</span><span class="nb">len</span><span class="p">(</span><span class="n">entries</span><span class="p">)</span><span class="si">}</span><span class="s2"> entries&quot;</span><span class="p">)</span>
+
+    <span class="k">if</span> <span class="n">delay_seconds</span> <span class="o">&gt;</span> <span class="mi">0</span><span class="p">:</span>
+        <span class="n">time</span><span class="o">.</span><span class="n">sleep</span><span class="p">(</span><span class="n">delay_seconds</span><span class="p">)</span>
+
+    <span class="k">return</span> <span class="n">entries</span><span class="p">,</span> <span class="n">next_url</span></div>
+
+
+
+<span class="c1"># ============================================================================</span>
+<span class="c1"># SCRAPER</span>
+<span class="c1"># ============================================================================</span>
+
+
+<div class="viewcode-block" id="scrape_data">
+<a class="viewcode-back" href="../api/scrape.html#scrape.scrape_data">[docs]</a>
+<span class="k">def</span><span class="w"> </span><span class="nf">scrape_data</span><span class="p">(</span>
+    <span class="n">max_pages</span><span class="p">:</span> <span class="n">Optional</span><span class="p">[</span><span class="nb">int</span><span class="p">]</span> <span class="o">=</span> <span class="kc">None</span><span class="p">,</span>
+    <span class="n">delay_seconds</span><span class="p">:</span> <span class="nb">float</span> <span class="o">=</span> <span class="n">DEFAULT_DELAY_SECONDS</span><span class="p">,</span>
+<span class="p">)</span> <span class="o">-&gt;</span> <span class="nb">list</span><span class="p">[</span><span class="nb">dict</span><span class="p">]:</span>
+<span class="w">    </span><span class="sd">&quot;&quot;&quot;Scrape survey pages, following GradCafe&#39;s ``Next`` link page by page.</span>
+
+<span class="sd">    GradCafe paginates with an opaque cursor token, not a page number --</span>
+<span class="sd">    page N+1&#39;s URL is only known after page N has been fetched and</span>
+<span class="sd">    parsed, so pages are fetched strictly one at a time, in order.</span>
+
+<span class="sd">    Stops once ``max_pages`` pages have been fetched, when a page has no</span>
+<span class="sd">    ``Next`` link, or on any blocking/network error. :data:`MAX_PAGES` is a</span>
+<span class="sd">    hard limit. Entries are de-duplicated by GradCafe result ID.</span>
+
+<span class="sd">    :param max_pages: Pages to fetch; ``None`` means :data:`MAX_PAGES`.</span>
+<span class="sd">        Values above :data:`MAX_PAGES` are capped.</span>
+<span class="sd">    :param delay_seconds: Delay after each request.</span>
+<span class="sd">    :returns: Unique raw entries (see :func:`_parse_page` for keys).</span>
+<span class="sd">    :rtype: list[dict]</span>
+<span class="sd">    :raises ValueError: If ``max_pages &lt; 1`` or ``delay_seconds &lt; 0``.</span>
+<span class="sd">    :raises PermissionError: If ``robots.txt`` disallows the survey page.</span>
+<span class="sd">    :raises RuntimeError: If ``robots.txt`` cannot be retrieved.</span>
+<span class="sd">    &quot;&quot;&quot;</span>
+    <span class="k">if</span> <span class="n">max_pages</span> <span class="ow">is</span> <span class="ow">not</span> <span class="kc">None</span> <span class="ow">and</span> <span class="n">max_pages</span> <span class="o">&lt;</span> <span class="mi">1</span><span class="p">:</span>
+        <span class="k">raise</span> <span class="ne">ValueError</span><span class="p">(</span><span class="s2">&quot;max_pages must be at least 1&quot;</span><span class="p">)</span>
+    <span class="k">if</span> <span class="n">delay_seconds</span> <span class="o">&lt;</span> <span class="mi">0</span><span class="p">:</span>
+        <span class="k">raise</span> <span class="ne">ValueError</span><span class="p">(</span><span class="s2">&quot;delay_seconds cannot be negative&quot;</span><span class="p">)</span>
+
+    <span class="c1"># Hard stop: never fetch more than MAX_PAGES pages, regardless of what</span>
+    <span class="c1"># max_pages was requested.</span>
+    <span class="k">if</span> <span class="n">max_pages</span> <span class="ow">is</span> <span class="kc">None</span><span class="p">:</span>
+        <span class="n">max_pages</span> <span class="o">=</span> <span class="n">MAX_PAGES</span>
+    <span class="k">elif</span> <span class="n">max_pages</span> <span class="o">&gt;</span> <span class="n">MAX_PAGES</span><span class="p">:</span>
+        <span class="nb">print</span><span class="p">(</span>
+            <span class="sa">f</span><span class="s2">&quot;[scrape] Requested max_pages of </span><span class="si">{</span><span class="n">max_pages</span><span class="si">:</span><span class="s2">,</span><span class="si">}</span><span class="s2"> exceeds the &quot;</span>
+            <span class="sa">f</span><span class="s2">&quot;hard limit of </span><span class="si">{</span><span class="n">MAX_PAGES</span><span class="si">:</span><span class="s2">,</span><span class="si">}</span><span class="s2">; capping to </span><span class="si">{</span><span class="n">MAX_PAGES</span><span class="si">:</span><span class="s2">,</span><span class="si">}</span><span class="s2">.&quot;</span>
+        <span class="p">)</span>
+        <span class="n">max_pages</span> <span class="o">=</span> <span class="n">MAX_PAGES</span>
+
+    <span class="nb">print</span><span class="p">(</span><span class="sa">f</span><span class="s2">&quot;[scrape] Target: </span><span class="si">{</span><span class="n">max_pages</span><span class="si">:</span><span class="s2">,</span><span class="si">}</span><span class="s2"> pages&quot;</span><span class="p">)</span>
+
+    <span class="n">robots_parser</span> <span class="o">=</span> <span class="n">confirm_scraping_permitted</span><span class="p">()</span>
+
+    <span class="n">all_entries</span><span class="p">:</span> <span class="nb">list</span><span class="p">[</span><span class="nb">dict</span><span class="p">]</span> <span class="o">=</span> <span class="p">[]</span>
+    <span class="n">seen_entry_ids</span><span class="p">:</span> <span class="nb">set</span><span class="p">[</span><span class="nb">str</span><span class="p">]</span> <span class="o">=</span> <span class="nb">set</span><span class="p">()</span>
+
+    <span class="n">pages_fetched</span> <span class="o">=</span> <span class="mi">0</span>
+    <span class="n">current_url</span><span class="p">:</span> <span class="n">Optional</span><span class="p">[</span><span class="nb">str</span><span class="p">]</span> <span class="o">=</span> <span class="n">urllib</span><span class="o">.</span><span class="n">parse</span><span class="o">.</span><span class="n">urljoin</span><span class="p">(</span><span class="n">BASE_URL</span><span class="p">,</span> <span class="n">SURVEY_PATH</span><span class="p">)</span>
+
+    <span class="c1"># ========================================================================</span>
+    <span class="c1"># MAIN SCRAPING LOOP -- strictly sequential; see the docstring above.</span>
+    <span class="c1"># ========================================================================</span>
+    <span class="k">while</span> <span class="n">pages_fetched</span> <span class="o">&lt;</span> <span class="n">max_pages</span> <span class="ow">and</span> <span class="n">current_url</span> <span class="ow">is</span> <span class="ow">not</span> <span class="kc">None</span><span class="p">:</span>
+        <span class="k">try</span><span class="p">:</span>
+            <span class="n">page_entries</span><span class="p">,</span> <span class="n">next_url</span> <span class="o">=</span> <span class="n">_fetch_and_parse_page</span><span class="p">(</span>
+                <span class="n">current_url</span><span class="p">,</span> <span class="n">delay_seconds</span><span class="p">,</span> <span class="n">robots_parser</span>
+            <span class="p">)</span>
+            <span class="n">pages_fetched</span> <span class="o">+=</span> <span class="mi">1</span>
+        <span class="k">except</span> <span class="n">ScrapeStoppedError</span> <span class="k">as</span> <span class="n">exc</span><span class="p">:</span>
+            <span class="nb">print</span><span class="p">(</span><span class="sa">f</span><span class="s2">&quot;[scrape] STOP: </span><span class="si">{</span><span class="n">exc</span><span class="si">}</span><span class="s2">&quot;</span><span class="p">)</span>
+            <span class="k">break</span>
+        <span class="k">except</span> <span class="ne">PermissionError</span> <span class="k">as</span> <span class="n">exc</span><span class="p">:</span>
+            <span class="nb">print</span><span class="p">(</span><span class="sa">f</span><span class="s2">&quot;[robots.txt] </span><span class="si">{</span><span class="n">exc</span><span class="si">}</span><span class="s2">&quot;</span><span class="p">)</span>
+            <span class="k">break</span>
+        <span class="k">except</span> <span class="n">urllib</span><span class="o">.</span><span class="n">error</span><span class="o">.</span><span class="n">URLError</span> <span class="k">as</span> <span class="n">exc</span><span class="p">:</span>
+            <span class="nb">print</span><span class="p">(</span><span class="sa">f</span><span class="s2">&quot;[scrape] network error fetching </span><span class="si">{</span><span class="n">current_url</span><span class="si">}</span><span class="s2">: </span><span class="si">{</span><span class="n">exc</span><span class="si">}</span><span class="s2">&quot;</span><span class="p">)</span>
+            <span class="k">break</span>
+        <span class="k">except</span> <span class="ne">Exception</span> <span class="k">as</span> <span class="n">exc</span><span class="p">:</span>
+            <span class="nb">print</span><span class="p">(</span><span class="sa">f</span><span class="s2">&quot;[scrape] fetching </span><span class="si">{</span><span class="n">current_url</span><span class="si">}</span><span class="s2"> failed: </span><span class="si">{</span><span class="n">exc</span><span class="si">}</span><span class="s2">&quot;</span><span class="p">)</span>
+            <span class="k">break</span>
+
+        <span class="c1"># ====================================================================</span>
+        <span class="c1"># ADD ENTRIES</span>
+        <span class="c1"># ====================================================================</span>
+        <span class="k">for</span> <span class="n">entry</span> <span class="ow">in</span> <span class="n">page_entries</span><span class="p">:</span>
+            <span class="n">entry_id</span> <span class="o">=</span> <span class="n">_clean_text</span><span class="p">(</span><span class="n">entry</span><span class="o">.</span><span class="n">get</span><span class="p">(</span><span class="s2">&quot;entry_id&quot;</span><span class="p">))</span>
+
+            <span class="c1"># Deduplicate by GradCafe result ID.</span>
+            <span class="k">if</span> <span class="n">entry_id</span><span class="p">:</span>
+                <span class="k">if</span> <span class="n">entry_id</span> <span class="ow">in</span> <span class="n">seen_entry_ids</span><span class="p">:</span>
+                    <span class="k">continue</span>
+                <span class="n">seen_entry_ids</span><span class="o">.</span><span class="n">add</span><span class="p">(</span><span class="n">entry_id</span><span class="p">)</span>
+
+            <span class="n">all_entries</span><span class="o">.</span><span class="n">append</span><span class="p">(</span><span class="n">entry</span><span class="p">)</span>
+
+        <span class="n">current_url</span> <span class="o">=</span> <span class="n">next_url</span>
+
+    <span class="nb">print</span><span class="p">()</span>
+    <span class="nb">print</span><span class="p">(</span><span class="s2">&quot;=&quot;</span> <span class="o">*</span> <span class="mi">70</span><span class="p">)</span>
+    <span class="k">if</span> <span class="n">pages_fetched</span> <span class="o">&gt;=</span> <span class="n">max_pages</span><span class="p">:</span>
+        <span class="k">if</span> <span class="n">max_pages</span> <span class="o">&gt;=</span> <span class="n">MAX_PAGES</span><span class="p">:</span>
+            <span class="nb">print</span><span class="p">(</span><span class="sa">f</span><span class="s2">&quot;[scrape] MAX_PAGES HARD CAP REACHED: </span><span class="si">{</span><span class="n">pages_fetched</span><span class="si">:</span><span class="s2">,</span><span class="si">}</span><span class="s2"> pages&quot;</span><span class="p">)</span>
+        <span class="k">else</span><span class="p">:</span>
+            <span class="nb">print</span><span class="p">(</span><span class="sa">f</span><span class="s2">&quot;[scrape] PAGE LIMIT REACHED: </span><span class="si">{</span><span class="n">pages_fetched</span><span class="si">:</span><span class="s2">,</span><span class="si">}</span><span class="s2"> pages&quot;</span><span class="p">)</span>
+    <span class="k">elif</span> <span class="n">current_url</span> <span class="ow">is</span> <span class="kc">None</span><span class="p">:</span>
+        <span class="nb">print</span><span class="p">(</span><span class="sa">f</span><span class="s2">&quot;[scrape] No further pages after </span><span class="si">{</span><span class="n">pages_fetched</span><span class="si">:</span><span class="s2">,</span><span class="si">}</span><span class="s2"> page(s).&quot;</span><span class="p">)</span>
+    <span class="nb">print</span><span class="p">(</span><span class="s2">&quot;=&quot;</span> <span class="o">*</span> <span class="mi">70</span><span class="p">)</span>
+
+    <span class="nb">print</span><span class="p">(</span>
+        <span class="sa">f</span><span class="s2">&quot;[scrape] Finished after fetching </span><span class="si">{</span><span class="n">pages_fetched</span><span class="si">:</span><span class="s2">,</span><span class="si">}</span><span class="s2"> page(s); &quot;</span>
+        <span class="sa">f</span><span class="s2">&quot;collected </span><span class="si">{</span><span class="nb">len</span><span class="p">(</span><span class="n">all_entries</span><span class="p">)</span><span class="si">:</span><span class="s2">,</span><span class="si">}</span><span class="s2"> unique entries.&quot;</span>
+    <span class="p">)</span>
+
+    <span class="k">return</span> <span class="n">all_entries</span></div>
+
+
+
+<span class="c1"># ============================================================================</span>
+<span class="c1"># Persistence</span>
+<span class="c1"># ============================================================================</span>
+
+
+<div class="viewcode-block" id="_save_json">
+<a class="viewcode-back" href="../api/scrape.html#scrape._save_json">[docs]</a>
+<span class="k">def</span><span class="w"> </span><span class="nf">_save_json</span><span class="p">(</span><span class="n">entries</span><span class="p">:</span> <span class="nb">list</span><span class="p">[</span><span class="nb">dict</span><span class="p">],</span> <span class="n">out_path</span><span class="p">:</span> <span class="nb">str</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="kc">None</span><span class="p">:</span>
+<span class="w">    </span><span class="sd">&quot;&quot;&quot;Write ``entries`` to ``out_path`` as pretty-printed UTF-8 JSON.</span>
+
+<span class="sd">    :param entries: Entries to write.</span>
+<span class="sd">    :param out_path: Destination file path.</span>
+<span class="sd">    &quot;&quot;&quot;</span>
+    <span class="k">with</span> <span class="nb">open</span><span class="p">(</span><span class="n">out_path</span><span class="p">,</span> <span class="s2">&quot;w&quot;</span><span class="p">,</span> <span class="n">encoding</span><span class="o">=</span><span class="s2">&quot;utf-8&quot;</span><span class="p">)</span> <span class="k">as</span> <span class="n">f</span><span class="p">:</span>
+        <span class="n">json</span><span class="o">.</span><span class="n">dump</span><span class="p">(</span><span class="n">entries</span><span class="p">,</span> <span class="n">f</span><span class="p">,</span> <span class="n">indent</span><span class="o">=</span><span class="mi">2</span><span class="p">,</span> <span class="n">ensure_ascii</span><span class="o">=</span><span class="kc">False</span><span class="p">)</span></div>
+
+
+
+<span class="c1"># ============================================================================</span>
+<span class="c1"># Pipeline</span>
+<span class="c1"># ============================================================================</span>
+
+
+<div class="viewcode-block" id="run">
+<a class="viewcode-back" href="../api/scrape.html#scrape.run">[docs]</a>
+<span class="k">def</span><span class="w"> </span><span class="nf">run</span><span class="p">(</span>
+    <span class="n">max_pages</span><span class="p">:</span> <span class="n">Optional</span><span class="p">[</span><span class="nb">int</span><span class="p">]</span> <span class="o">=</span> <span class="kc">None</span><span class="p">,</span>
+    <span class="n">delay_seconds</span><span class="p">:</span> <span class="nb">float</span> <span class="o">=</span> <span class="n">DEFAULT_DELAY_SECONDS</span><span class="p">,</span>
+    <span class="n">out_path</span><span class="p">:</span> <span class="nb">str</span> <span class="o">=</span> <span class="s2">&quot;applicant_data.json&quot;</span><span class="p">,</span>
+<span class="p">)</span> <span class="o">-&gt;</span> <span class="nb">list</span><span class="p">[</span><span class="nb">dict</span><span class="p">]:</span>
+<span class="w">    </span><span class="sd">&quot;&quot;&quot;Scrape GradCafe and save the raw results to JSON.</span>
+
+<span class="sd">    :param max_pages: Passed to :func:`scrape_data`.</span>
+<span class="sd">    :param delay_seconds: Passed to :func:`scrape_data`.</span>
+<span class="sd">    :param out_path: Output JSON path (default ``applicant_data.json``).</span>
+<span class="sd">    :returns: The entries written, or ``[]`` if nothing was scraped (in</span>
+<span class="sd">        which case no file is written).</span>
+<span class="sd">    :rtype: list[dict]</span>
+<span class="sd">    &quot;&quot;&quot;</span>
+    <span class="n">raw_entries</span> <span class="o">=</span> <span class="n">scrape_data</span><span class="p">(</span>
+        <span class="n">max_pages</span><span class="o">=</span><span class="n">max_pages</span><span class="p">,</span>
+        <span class="n">delay_seconds</span><span class="o">=</span><span class="n">delay_seconds</span><span class="p">,</span>
+    <span class="p">)</span>
+
+    <span class="k">if</span> <span class="ow">not</span> <span class="n">raw_entries</span><span class="p">:</span>
+        <span class="nb">print</span><span class="p">(</span><span class="s2">&quot;No entries were scraped. Nothing was written.&quot;</span><span class="p">)</span>
+        <span class="k">return</span> <span class="p">[]</span>
+
+    <span class="n">entries</span> <span class="o">=</span> <span class="p">[</span><span class="nb">dict</span><span class="p">(</span><span class="n">entry</span><span class="p">)</span> <span class="k">for</span> <span class="n">entry</span> <span class="ow">in</span> <span class="n">raw_entries</span><span class="p">]</span>
+
+    <span class="n">_save_json</span><span class="p">(</span><span class="n">entries</span><span class="p">,</span> <span class="n">out_path</span><span class="p">)</span>
+    <span class="nb">print</span><span class="p">(</span><span class="sa">f</span><span class="s2">&quot;[scrape] Wrote </span><span class="si">{</span><span class="nb">len</span><span class="p">(</span><span class="n">entries</span><span class="p">)</span><span class="si">:</span><span class="s2">,</span><span class="si">}</span><span class="s2"> entries to </span><span class="si">{</span><span class="n">out_path</span><span class="si">}</span><span class="s2">&quot;</span><span class="p">)</span>
+
+    <span class="k">return</span> <span class="n">entries</span></div>
+
+
+
+<span class="c1"># ============================================================================</span>
+<span class="c1"># CLI</span>
+<span class="c1"># ============================================================================</span>
+
+
+<div class="viewcode-block" id="main">
+<a class="viewcode-back" href="../api/scrape.html#scrape.main">[docs]</a>
+<span class="k">def</span><span class="w"> </span><span class="nf">main</span><span class="p">()</span> <span class="o">-&gt;</span> <span class="nb">int</span><span class="p">:</span>
+<span class="w">    </span><span class="sd">&quot;&quot;&quot;Command-line entry point.</span>
+
+<span class="sd">    Options: ``--max-pages``, ``--delay``, ``--output``.</span>
+
+<span class="sd">    :returns: Process exit code -- ``0`` on success, ``1`` on a robots/</span>
+<span class="sd">        runtime error, ``130`` if interrupted with Ctrl-C.</span>
+<span class="sd">    :rtype: int</span>
+<span class="sd">    &quot;&quot;&quot;</span>
+    <span class="n">parser</span> <span class="o">=</span> <span class="n">argparse</span><span class="o">.</span><span class="n">ArgumentParser</span><span class="p">(</span>
+        <span class="n">description</span><span class="o">=</span><span class="s2">&quot;Scrape GradCafe survey data, following its Next-page links.&quot;</span>
+    <span class="p">)</span>
+
+    <span class="n">parser</span><span class="o">.</span><span class="n">add_argument</span><span class="p">(</span>
+        <span class="s2">&quot;--max-pages&quot;</span><span class="p">,</span>
+        <span class="nb">type</span><span class="o">=</span><span class="nb">int</span><span class="p">,</span>
+        <span class="n">default</span><span class="o">=</span><span class="n">MAX_PAGES</span><span class="p">,</span>
+        <span class="n">help</span><span class="o">=</span><span class="sa">f</span><span class="s2">&quot;Number of pages to fetch (hard maximum: </span><span class="si">{</span><span class="n">MAX_PAGES</span><span class="si">:</span><span class="s2">,</span><span class="si">}</span><span class="s2">).&quot;</span><span class="p">,</span>
+    <span class="p">)</span>
+    <span class="n">parser</span><span class="o">.</span><span class="n">add_argument</span><span class="p">(</span>
+        <span class="s2">&quot;--delay&quot;</span><span class="p">,</span>
+        <span class="nb">type</span><span class="o">=</span><span class="nb">float</span><span class="p">,</span>
+        <span class="n">default</span><span class="o">=</span><span class="n">DEFAULT_DELAY_SECONDS</span><span class="p">,</span>
+        <span class="n">help</span><span class="o">=</span><span class="p">(</span><span class="s2">&quot;Delay after each request &quot;</span> <span class="sa">f</span><span class="s2">&quot;(default: </span><span class="si">{</span><span class="n">DEFAULT_DELAY_SECONDS</span><span class="si">}</span><span class="s2">).&quot;</span><span class="p">),</span>
+    <span class="p">)</span>
+    <span class="n">parser</span><span class="o">.</span><span class="n">add_argument</span><span class="p">(</span>
+        <span class="s2">&quot;--output&quot;</span><span class="p">,</span>
+        <span class="n">default</span><span class="o">=</span><span class="s2">&quot;applicant_data.json&quot;</span><span class="p">,</span>
+        <span class="n">help</span><span class="o">=</span><span class="s2">&quot;Output JSON filename.&quot;</span><span class="p">,</span>
+    <span class="p">)</span>
+
+    <span class="n">args</span> <span class="o">=</span> <span class="n">parser</span><span class="o">.</span><span class="n">parse_args</span><span class="p">()</span>
+
+    <span class="k">try</span><span class="p">:</span>
+        <span class="n">run</span><span class="p">(</span>
+            <span class="n">max_pages</span><span class="o">=</span><span class="n">args</span><span class="o">.</span><span class="n">max_pages</span><span class="p">,</span>
+            <span class="n">delay_seconds</span><span class="o">=</span><span class="n">args</span><span class="o">.</span><span class="n">delay</span><span class="p">,</span>
+            <span class="n">out_path</span><span class="o">=</span><span class="n">args</span><span class="o">.</span><span class="n">output</span><span class="p">,</span>
+        <span class="p">)</span>
+    <span class="k">except</span> <span class="p">(</span><span class="ne">PermissionError</span><span class="p">,</span> <span class="ne">RuntimeError</span><span class="p">)</span> <span class="k">as</span> <span class="n">exc</span><span class="p">:</span>
+        <span class="nb">print</span><span class="p">(</span><span class="sa">f</span><span class="s2">&quot;[error] </span><span class="si">{</span><span class="n">exc</span><span class="si">}</span><span class="s2">&quot;</span><span class="p">,</span> <span class="n">file</span><span class="o">=</span><span class="n">sys</span><span class="o">.</span><span class="n">stderr</span><span class="p">)</span>
+        <span class="k">return</span> <span class="mi">1</span>
+    <span class="k">except</span> <span class="ne">KeyboardInterrupt</span><span class="p">:</span>
+        <span class="nb">print</span><span class="p">(</span><span class="s2">&quot;</span><span class="se">\n</span><span class="s2">[error] Interrupted by user.&quot;</span><span class="p">,</span> <span class="n">file</span><span class="o">=</span><span class="n">sys</span><span class="o">.</span><span class="n">stderr</span><span class="p">)</span>
+        <span class="k">return</span> <span class="mi">130</span>
+
+    <span class="k">return</span> <span class="mi">0</span></div>
+
+
+
+<span class="k">if</span> <span class="vm">__name__</span> <span class="o">==</span> <span class="s2">&quot;__main__&quot;</span><span class="p">:</span>
+    <span class="n">sys</span><span class="o">.</span><span class="n">exit</span><span class="p">(</span><span class="n">main</span><span class="p">())</span>
+</pre></div>
+
+           </div>
+          </div>
+          <footer>
+
+  <hr/>
+
+  <div role="contentinfo">
+    <p>&#169; Copyright 2026, Shane Battles (sbattl15).</p>
+  </div>
+
+  Built with <a href="https://www.sphinx-doc.org/">Sphinx</a> using a
+    <a href="https://github.com/readthedocs/sphinx_rtd_theme">theme</a>
+    provided by <a href="https://readthedocs.org">Read the Docs</a>.
+   
+
+</footer>
+        </div>
+      </div>
+    </section>
+  </div>
+  <script>
+      jQuery(function () {
+          SphinxRtdTheme.Navigation.enable(true);
+      });
+  </script> 
+
+</body>
+</html>

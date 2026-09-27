@@ -1,0 +1,584 @@
+
+
+<!DOCTYPE html>
+<html class="writer-html5" lang="en" data-content_root="../">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>app &mdash; GradCafe Analytics</title>
+      <link rel="stylesheet" type="text/css" href="../_static/pygments.css?v=b86133f3" />
+      <link rel="stylesheet" type="text/css" href="../_static/css/theme.css?v=9edc463e" />
+
+  
+      <script src="../_static/jquery.js?v=5d32c60e"></script>
+      <script src="../_static/_sphinx_javascript_frameworks_compat.js?v=2cd50e6c"></script>
+      <script src="../_static/documentation_options.js?v=f2a433a1"></script>
+      <script src="../_static/doctools.js?v=fd6eb6e6"></script>
+      <script src="../_static/sphinx_highlight.js?v=6ffebe34"></script>
+    <script src="../_static/js/theme.js"></script>
+    <link rel="index" title="Index" href="../genindex.html" />
+    <link rel="search" title="Search" href="../search.html" /> 
+</head>
+
+<body class="wy-body-for-nav"> 
+  <div class="wy-grid-for-nav">
+    <nav data-toggle="wy-nav-shift" class="wy-nav-side">
+      <div class="wy-side-scroll">
+        <div class="wy-side-nav-search" >
+
+          
+          
+          <a href="../index.html" class="icon icon-home">
+            GradCafe Analytics
+          </a>
+<div role="search">
+  <form id="rtd-search-form" class="wy-form" action="../search.html" method="get">
+    <input type="text" name="q" placeholder="Search docs" aria-label="Search docs" />
+    <input type="hidden" name="check_keywords" value="yes" />
+    <input type="hidden" name="area" value="default" />
+  </form>
+</div>
+        </div><div class="wy-menu wy-menu-vertical" data-spy="affix" role="navigation" aria-label="Navigation menu">
+              <p class="caption" role="heading"><span class="caption-text">Guide</span></p>
+<ul>
+<li class="toctree-l1"><a class="reference internal" href="../overview.html">Overview &amp; Setup</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../architecture.html">Architecture</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../testing.html">Testing Guide</a></li>
+</ul>
+<p class="caption" role="heading"><span class="caption-text">API Reference</span></p>
+<ul>
+<li class="toctree-l1"><a class="reference internal" href="../api/index.html">API Reference</a></li>
+</ul>
+
+        </div>
+      </div>
+    </nav>
+
+    <section data-toggle="wy-nav-shift" class="wy-nav-content-wrap"><nav class="wy-nav-top" aria-label="Mobile navigation menu" >
+          <i data-toggle="wy-nav-top" class="fa fa-bars"></i>
+          <a href="../index.html">GradCafe Analytics</a>
+      </nav>
+
+      <div class="wy-nav-content">
+        <div class="rst-content">
+          <div role="navigation" aria-label="Page navigation">
+  <ul class="wy-breadcrumbs">
+      <li><a href="../index.html" class="icon icon-home" aria-label="Home"></a></li>
+          <li class="breadcrumb-item"><a href="index.html">Module code</a></li>
+      <li class="breadcrumb-item active">app</li>
+      <li class="wy-breadcrumbs-aside">
+      </li>
+  </ul>
+  <hr/>
+</div>
+          <div role="main" class="document" itemscope="itemscope" itemtype="http://schema.org/Article">
+           <div itemprop="articleBody">
+             
+  <h1>Source code for app</h1><div class="highlight"><pre>
+<span></span><span class="sd">&quot;&quot;&quot;Flask web application for the GradCafe analysis dashboard.</span>
+
+<span class="sd">This module is the **web layer**. It renders the analysis page (answers to</span>
+<span class="sd">the assignment questions, queried live from PostgreSQL via</span>
+<span class="sd">``orm_queries``), and exposes two buttons backed by JSON endpoints:</span>
+
+<span class="sd">* **Pull Data** -- ``POST /pull-data`` launches ``pull_data.py`` (scrape -&gt;</span>
+<span class="sd">  clean -&gt; load) in a background subprocess; ``GET /pull-data/status``</span>
+<span class="sd">  reports its progress.</span>
+<span class="sd">* **Update Analysis** -- ``POST /update-analysis`` re-runs every query.</span>
+<span class="sd">  It is refused with HTTP 409 while a pull is running.</span>
+
+<span class="sd">Routes</span>
+<span class="sd">------</span>
+
+<span class="sd">=========================  ======  ==========================================</span>
+<span class="sd">Route                      Method  Purpose</span>
+<span class="sd">=========================  ======  ==========================================</span>
+<span class="sd">``/``                      GET     Render ``index.html`` with fresh results.</span>
+<span class="sd">``/pull-data``             POST    Start a background data pull (409 if busy).</span>
+<span class="sd">``/pull-data/status``      GET     JSON snapshot of the pull state.</span>
+<span class="sd">``/update-analysis``       POST    Re-query the analysis (409 if pulling).</span>
+<span class="sd">=========================  ======  ==========================================</span>
+
+<span class="sd">Environment variables: ``FLASK_SECRET_KEY`` plus whatever ``models``</span>
+<span class="sd">uses to connect to the database (e.g. ``DATABASE_URL``).</span>
+<span class="sd">&quot;&quot;&quot;</span>
+
+<span class="kn">from</span><span class="w"> </span><span class="nn">__future__</span><span class="w"> </span><span class="kn">import</span> <span class="n">annotations</span>
+
+<span class="kn">import</span><span class="w"> </span><span class="nn">os</span>
+<span class="kn">import</span><span class="w"> </span><span class="nn">subprocess</span>
+<span class="kn">import</span><span class="w"> </span><span class="nn">sys</span>
+<span class="kn">import</span><span class="w"> </span><span class="nn">threading</span>
+<span class="kn">from</span><span class="w"> </span><span class="nn">datetime</span><span class="w"> </span><span class="kn">import</span> <span class="n">datetime</span>
+<span class="kn">from</span><span class="w"> </span><span class="nn">pathlib</span><span class="w"> </span><span class="kn">import</span> <span class="n">Path</span>
+
+<span class="kn">from</span><span class="w"> </span><span class="nn">flask</span><span class="w"> </span><span class="kn">import</span> <span class="n">Flask</span><span class="p">,</span> <span class="n">jsonify</span><span class="p">,</span> <span class="n">render_template</span>
+
+<span class="kn">import</span><span class="w"> </span><span class="nn">orm_queries</span><span class="w"> </span><span class="k">as</span><span class="w"> </span><span class="nn">q</span>
+<span class="kn">from</span><span class="w"> </span><span class="nn">models</span><span class="w"> </span><span class="kn">import</span> <span class="n">get_session</span>
+
+<span class="c1">#: The Flask application instance.</span>
+<span class="n">app</span> <span class="o">=</span> <span class="n">Flask</span><span class="p">(</span><span class="vm">__name__</span><span class="p">)</span>
+<span class="n">app</span><span class="o">.</span><span class="n">secret_key</span> <span class="o">=</span> <span class="n">os</span><span class="o">.</span><span class="n">environ</span><span class="o">.</span><span class="n">get</span><span class="p">(</span><span class="s2">&quot;FLASK_SECRET_KEY&quot;</span><span class="p">,</span> <span class="s2">&quot;dev-secret-change-me&quot;</span><span class="p">)</span>
+
+<span class="c1">#: Directory containing this file; used as the subprocess working directory.</span>
+<span class="n">BASE_DIR</span> <span class="o">=</span> <span class="n">Path</span><span class="p">(</span><span class="vm">__file__</span><span class="p">)</span><span class="o">.</span><span class="n">resolve</span><span class="p">()</span><span class="o">.</span><span class="n">parent</span>
+<span class="c1">#: Script launched by the Pull Data button.</span>
+<span class="n">PULL_DATA_SCRIPT</span> <span class="o">=</span> <span class="n">BASE_DIR</span> <span class="o">/</span> <span class="s2">&quot;pull_data.py&quot;</span>
+
+<span class="c1"># --------------------------------------------------------------------------</span>
+<span class="c1"># Part 9: Pull Data -- background subprocess + status tracking</span>
+<span class="c1"># --------------------------------------------------------------------------</span>
+
+<span class="n">_pull_lock</span> <span class="o">=</span> <span class="n">threading</span><span class="o">.</span><span class="n">Lock</span><span class="p">()</span>
+<span class="n">_pull_state</span><span class="p">:</span> <span class="nb">dict</span> <span class="o">=</span> <span class="p">{</span>
+    <span class="s2">&quot;running&quot;</span><span class="p">:</span> <span class="kc">False</span><span class="p">,</span>
+    <span class="s2">&quot;started_at&quot;</span><span class="p">:</span> <span class="kc">None</span><span class="p">,</span>
+    <span class="s2">&quot;finished_at&quot;</span><span class="p">:</span> <span class="kc">None</span><span class="p">,</span>
+    <span class="s2">&quot;success&quot;</span><span class="p">:</span> <span class="kc">None</span><span class="p">,</span>       <span class="c1"># None until a run has finished; True/False after</span>
+    <span class="s2">&quot;message&quot;</span><span class="p">:</span> <span class="s2">&quot;No data pull has been run yet.&quot;</span><span class="p">,</span>
+<span class="p">}</span>
+
+
+<div class="viewcode-block" id="_iso">
+<a class="viewcode-back" href="../api/flask_app.html#app._iso">[docs]</a>
+<span class="k">def</span><span class="w"> </span><span class="nf">_iso</span><span class="p">(</span><span class="n">dt</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="nb">str</span> <span class="o">|</span> <span class="kc">None</span><span class="p">:</span>
+<span class="w">    </span><span class="sd">&quot;&quot;&quot;Return ``dt`` as an ISO-8601 string, or ``None``.</span>
+
+<span class="sd">    :param dt: A :class:`datetime.datetime` or ``None``.</span>
+<span class="sd">    :rtype: str or None</span>
+<span class="sd">    &quot;&quot;&quot;</span>
+    <span class="k">return</span> <span class="n">dt</span><span class="o">.</span><span class="n">isoformat</span><span class="p">()</span> <span class="k">if</span> <span class="n">dt</span> <span class="k">else</span> <span class="kc">None</span></div>
+
+
+
+<div class="viewcode-block" id="_pull_status_snapshot">
+<a class="viewcode-back" href="../api/flask_app.html#app._pull_status_snapshot">[docs]</a>
+<span class="k">def</span><span class="w"> </span><span class="nf">_pull_status_snapshot</span><span class="p">()</span> <span class="o">-&gt;</span> <span class="nb">dict</span><span class="p">:</span>
+<span class="w">    </span><span class="sd">&quot;&quot;&quot;Return a JSON-serialisable, thread-safe copy of the pull state.</span>
+
+<span class="sd">    :returns: Dict with ``running``, ``started_at``, ``finished_at``,</span>
+<span class="sd">        ``success`` and ``message``.</span>
+<span class="sd">    :rtype: dict</span>
+<span class="sd">    &quot;&quot;&quot;</span>
+    <span class="k">with</span> <span class="n">_pull_lock</span><span class="p">:</span>
+        <span class="k">return</span> <span class="p">{</span>
+            <span class="s2">&quot;running&quot;</span><span class="p">:</span> <span class="n">_pull_state</span><span class="p">[</span><span class="s2">&quot;running&quot;</span><span class="p">],</span>
+            <span class="s2">&quot;started_at&quot;</span><span class="p">:</span> <span class="n">_iso</span><span class="p">(</span><span class="n">_pull_state</span><span class="p">[</span><span class="s2">&quot;started_at&quot;</span><span class="p">]),</span>
+            <span class="s2">&quot;finished_at&quot;</span><span class="p">:</span> <span class="n">_iso</span><span class="p">(</span><span class="n">_pull_state</span><span class="p">[</span><span class="s2">&quot;finished_at&quot;</span><span class="p">]),</span>
+            <span class="s2">&quot;success&quot;</span><span class="p">:</span> <span class="n">_pull_state</span><span class="p">[</span><span class="s2">&quot;success&quot;</span><span class="p">],</span>
+            <span class="s2">&quot;message&quot;</span><span class="p">:</span> <span class="n">_pull_state</span><span class="p">[</span><span class="s2">&quot;message&quot;</span><span class="p">],</span>
+        <span class="p">}</span></div>
+
+
+
+<div class="viewcode-block" id="_pull_is_running">
+<a class="viewcode-back" href="../api/flask_app.html#app._pull_is_running">[docs]</a>
+<span class="k">def</span><span class="w"> </span><span class="nf">_pull_is_running</span><span class="p">()</span> <span class="o">-&gt;</span> <span class="nb">bool</span><span class="p">:</span>
+<span class="w">    </span><span class="sd">&quot;&quot;&quot;Return whether a data pull is currently running.</span>
+
+<span class="sd">    ``/pull-data`` and ``/update-analysis`` gate on this so a click can&#39;t</span>
+<span class="sd">    start a second concurrent pull and an analysis refresh can&#39;t race a</span>
+<span class="sd">    pull that&#39;s mid-write.</span>
+
+<span class="sd">    :rtype: bool</span>
+<span class="sd">    &quot;&quot;&quot;</span>
+    <span class="k">with</span> <span class="n">_pull_lock</span><span class="p">:</span>
+        <span class="k">return</span> <span class="n">_pull_state</span><span class="p">[</span><span class="s2">&quot;running&quot;</span><span class="p">]</span></div>
+
+
+
+<div class="viewcode-block" id="_fmt_pct">
+<a class="viewcode-back" href="../api/flask_app.html#app._fmt_pct">[docs]</a>
+<span class="k">def</span><span class="w"> </span><span class="nf">_fmt_pct</span><span class="p">(</span><span class="n">value</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="nb">str</span><span class="p">:</span>
+<span class="w">    </span><span class="sd">&quot;&quot;&quot;Format a percentage with exactly two decimal places.</span>
+
+<span class="sd">    Works whether the DB driver returns a ``Decimal``, ``float`` or ``int``,</span>
+<span class="sd">    so the page never shows ``&quot;42%&quot;`` or ``&quot;42.5%&quot;`` -- only ``&quot;42.00&quot;``.</span>
+<span class="sd">    ``None`` (e.g. a NULLIF-guarded division by zero) renders as ``&quot;0.00&quot;``.</span>
+
+<span class="sd">    :param value: Numeric value or ``None``.</span>
+<span class="sd">    :returns: The formatted number (without a ``%`` sign).</span>
+<span class="sd">    :rtype: str</span>
+
+<span class="sd">    &gt;&gt;&gt; _fmt_pct(42.5)</span>
+<span class="sd">    &#39;42.50&#39;</span>
+<span class="sd">    &gt;&gt;&gt; _fmt_pct(None)</span>
+<span class="sd">    &#39;0.00&#39;</span>
+<span class="sd">    &quot;&quot;&quot;</span>
+    <span class="k">if</span> <span class="n">value</span> <span class="ow">is</span> <span class="kc">None</span><span class="p">:</span>
+        <span class="k">return</span> <span class="s2">&quot;0.00&quot;</span>
+    <span class="k">return</span> <span class="sa">f</span><span class="s2">&quot;</span><span class="si">{</span><span class="nb">float</span><span class="p">(</span><span class="n">value</span><span class="p">)</span><span class="si">:</span><span class="s2">.2f</span><span class="si">}</span><span class="s2">&quot;</span></div>
+
+
+
+<div class="viewcode-block" id="_watch_pull_process">
+<a class="viewcode-back" href="../api/flask_app.html#app._watch_pull_process">[docs]</a>
+<span class="k">def</span><span class="w"> </span><span class="nf">_watch_pull_process</span><span class="p">(</span><span class="n">proc</span><span class="p">:</span> <span class="n">subprocess</span><span class="o">.</span><span class="n">Popen</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="kc">None</span><span class="p">:</span>
+<span class="w">    </span><span class="sd">&quot;&quot;&quot;Wait for the Pull Data subprocess and record its outcome.</span>
+
+<span class="sd">    Runs in a background thread. Streams the subprocess output, parses the</span>
+<span class="sd">    final ``PULL_DATA_SUMMARY::{...}`` JSON line if present, and updates the</span>
+<span class="sd">    shared status dict. Never touches the request/response cycle, so it</span>
+<span class="sd">    can&#39;t block a page load.</span>
+
+<span class="sd">    :param proc: The running ``pull_data.py`` process (stdout piped, text mode).</span>
+<span class="sd">    :rtype: None</span>
+<span class="sd">    &quot;&quot;&quot;</span>
+    <span class="n">summary_line</span> <span class="o">=</span> <span class="kc">None</span>
+    <span class="n">tail_lines</span><span class="p">:</span> <span class="nb">list</span><span class="p">[</span><span class="nb">str</span><span class="p">]</span> <span class="o">=</span> <span class="p">[]</span>
+    <span class="k">try</span><span class="p">:</span>
+        <span class="k">assert</span> <span class="n">proc</span><span class="o">.</span><span class="n">stdout</span> <span class="ow">is</span> <span class="ow">not</span> <span class="kc">None</span>
+        <span class="k">for</span> <span class="n">line</span> <span class="ow">in</span> <span class="n">proc</span><span class="o">.</span><span class="n">stdout</span><span class="p">:</span>
+            <span class="n">line</span> <span class="o">=</span> <span class="n">line</span><span class="o">.</span><span class="n">rstrip</span><span class="p">(</span><span class="s2">&quot;</span><span class="se">\n</span><span class="s2">&quot;</span><span class="p">)</span>
+            <span class="k">if</span> <span class="ow">not</span> <span class="n">line</span><span class="p">:</span>
+                <span class="k">continue</span>
+            <span class="nb">print</span><span class="p">(</span><span class="sa">f</span><span class="s2">&quot;[pull-data subprocess] </span><span class="si">{</span><span class="n">line</span><span class="si">}</span><span class="s2">&quot;</span><span class="p">)</span>
+            <span class="k">if</span> <span class="n">line</span><span class="o">.</span><span class="n">startswith</span><span class="p">(</span><span class="s2">&quot;PULL_DATA_SUMMARY::&quot;</span><span class="p">):</span>
+                <span class="n">summary_line</span> <span class="o">=</span> <span class="n">line</span><span class="p">[</span><span class="nb">len</span><span class="p">(</span><span class="s2">&quot;PULL_DATA_SUMMARY::&quot;</span><span class="p">):]</span>
+            <span class="k">else</span><span class="p">:</span>
+                <span class="n">tail_lines</span><span class="o">.</span><span class="n">append</span><span class="p">(</span><span class="n">line</span><span class="p">)</span>
+        <span class="n">returncode</span> <span class="o">=</span> <span class="n">proc</span><span class="o">.</span><span class="n">wait</span><span class="p">()</span>
+    <span class="k">except</span> <span class="ne">Exception</span> <span class="k">as</span> <span class="n">exc</span><span class="p">:</span>  <span class="c1"># the watcher itself failed, not the subprocess</span>
+        <span class="n">returncode</span> <span class="o">=</span> <span class="o">-</span><span class="mi">1</span>
+        <span class="n">tail_lines</span><span class="o">.</span><span class="n">append</span><span class="p">(</span><span class="sa">f</span><span class="s2">&quot;(status watcher error: </span><span class="si">{</span><span class="n">exc</span><span class="si">}</span><span class="s2">)&quot;</span><span class="p">)</span>
+
+    <span class="k">if</span> <span class="n">returncode</span> <span class="o">==</span> <span class="mi">0</span> <span class="ow">and</span> <span class="n">summary_line</span><span class="p">:</span>
+        <span class="kn">import</span><span class="w"> </span><span class="nn">json</span>
+
+        <span class="k">try</span><span class="p">:</span>
+            <span class="n">summary</span> <span class="o">=</span> <span class="n">json</span><span class="o">.</span><span class="n">loads</span><span class="p">(</span><span class="n">summary_line</span><span class="p">)</span>
+            <span class="n">message</span> <span class="o">=</span> <span class="p">(</span>
+                <span class="sa">f</span><span class="s2">&quot;Pull finished at </span><span class="si">{</span><span class="n">datetime</span><span class="o">.</span><span class="n">now</span><span class="p">()</span><span class="o">.</span><span class="n">strftime</span><span class="p">(</span><span class="s1">&#39;%I:%M %p&#39;</span><span class="p">)</span><span class="si">}</span><span class="s2">: &quot;</span>
+                <span class="sa">f</span><span class="s2">&quot;added </span><span class="si">{</span><span class="n">summary</span><span class="p">[</span><span class="s1">&#39;inserted&#39;</span><span class="p">]</span><span class="si">:</span><span class="s2">,</span><span class="si">}</span><span class="s2"> new record(s) &quot;</span>
+                <span class="sa">f</span><span class="s2">&quot;(</span><span class="si">{</span><span class="n">summary</span><span class="p">[</span><span class="s1">&#39;duplicates&#39;</span><span class="p">]</span><span class="si">:</span><span class="s2">,</span><span class="si">}</span><span class="s2"> already in the database, &quot;</span>
+                <span class="sa">f</span><span class="s2">&quot;</span><span class="si">{</span><span class="n">summary</span><span class="p">[</span><span class="s1">&#39;usable&#39;</span><span class="p">]</span><span class="si">:</span><span class="s2">,</span><span class="si">}</span><span class="s2"> usable of </span><span class="si">{</span><span class="n">summary</span><span class="p">[</span><span class="s1">&#39;raw&#39;</span><span class="p">]</span><span class="si">:</span><span class="s2">,</span><span class="si">}</span><span class="s2"> scraped).&quot;</span>
+            <span class="p">)</span>
+            <span class="n">success</span> <span class="o">=</span> <span class="kc">True</span>
+        <span class="k">except</span> <span class="p">(</span><span class="ne">ValueError</span><span class="p">,</span> <span class="ne">KeyError</span><span class="p">):</span>
+            <span class="n">message</span> <span class="o">=</span> <span class="s2">&quot;Pull finished, but its summary output couldn&#39;t be parsed.&quot;</span>
+            <span class="n">success</span> <span class="o">=</span> <span class="kc">True</span>
+    <span class="k">elif</span> <span class="n">returncode</span> <span class="o">==</span> <span class="mi">0</span><span class="p">:</span>
+        <span class="n">message</span> <span class="o">=</span> <span class="s2">&quot;Pull finished.&quot;</span>
+        <span class="n">success</span> <span class="o">=</span> <span class="kc">True</span>
+    <span class="k">else</span><span class="p">:</span>
+        <span class="n">last_output</span> <span class="o">=</span> <span class="n">tail_lines</span><span class="p">[</span><span class="o">-</span><span class="mi">1</span><span class="p">]</span> <span class="k">if</span> <span class="n">tail_lines</span> <span class="k">else</span> <span class="s2">&quot;no output captured&quot;</span>
+        <span class="n">message</span> <span class="o">=</span> <span class="sa">f</span><span class="s2">&quot;Pull failed (exit code </span><span class="si">{</span><span class="n">returncode</span><span class="si">}</span><span class="s2">): </span><span class="si">{</span><span class="n">last_output</span><span class="si">}</span><span class="s2">&quot;</span>
+        <span class="n">success</span> <span class="o">=</span> <span class="kc">False</span>
+
+    <span class="k">with</span> <span class="n">_pull_lock</span><span class="p">:</span>
+        <span class="n">_pull_state</span><span class="p">[</span><span class="s2">&quot;running&quot;</span><span class="p">]</span> <span class="o">=</span> <span class="kc">False</span>
+        <span class="n">_pull_state</span><span class="p">[</span><span class="s2">&quot;finished_at&quot;</span><span class="p">]</span> <span class="o">=</span> <span class="n">datetime</span><span class="o">.</span><span class="n">now</span><span class="p">()</span>
+        <span class="n">_pull_state</span><span class="p">[</span><span class="s2">&quot;success&quot;</span><span class="p">]</span> <span class="o">=</span> <span class="n">success</span>
+        <span class="n">_pull_state</span><span class="p">[</span><span class="s2">&quot;message&quot;</span><span class="p">]</span> <span class="o">=</span> <span class="n">message</span></div>
+
+
+
+<div class="viewcode-block" id="start_pull_data">
+<a class="viewcode-back" href="../api/flask_app.html#app.start_pull_data">[docs]</a>
+<span class="k">def</span><span class="w"> </span><span class="nf">start_pull_data</span><span class="p">()</span> <span class="o">-&gt;</span> <span class="nb">tuple</span><span class="p">[</span><span class="nb">bool</span><span class="p">,</span> <span class="nb">str</span><span class="p">]:</span>
+<span class="w">    </span><span class="sd">&quot;&quot;&quot;Start ``pull_data.py`` in a background subprocess if none is running.</span>
+
+<span class="sd">    A daemon thread running :func:`_watch_pull_process` tracks completion.</span>
+
+<span class="sd">    :returns: ``(started, message)`` -- ``started`` is ``False`` if a pull</span>
+<span class="sd">        was already running or the process could not be launched.</span>
+<span class="sd">    :rtype: tuple[bool, str]</span>
+<span class="sd">    &quot;&quot;&quot;</span>
+    <span class="k">with</span> <span class="n">_pull_lock</span><span class="p">:</span>
+        <span class="k">if</span> <span class="n">_pull_state</span><span class="p">[</span><span class="s2">&quot;running&quot;</span><span class="p">]:</span>
+            <span class="n">started_at</span> <span class="o">=</span> <span class="n">_pull_state</span><span class="p">[</span><span class="s2">&quot;started_at&quot;</span><span class="p">]</span>
+            <span class="n">when</span> <span class="o">=</span> <span class="n">started_at</span><span class="o">.</span><span class="n">strftime</span><span class="p">(</span><span class="s2">&quot;%I:%M %p&quot;</span><span class="p">)</span> <span class="k">if</span> <span class="n">started_at</span> <span class="k">else</span> <span class="s2">&quot;recently&quot;</span>
+            <span class="k">return</span> <span class="kc">False</span><span class="p">,</span> <span class="sa">f</span><span class="s2">&quot;A data pull is already running (started </span><span class="si">{</span><span class="n">when</span><span class="si">}</span><span class="s2">). Please wait for it to finish.&quot;</span>
+
+        <span class="k">try</span><span class="p">:</span>
+            <span class="n">proc</span> <span class="o">=</span> <span class="n">subprocess</span><span class="o">.</span><span class="n">Popen</span><span class="p">(</span>
+                <span class="p">[</span><span class="n">sys</span><span class="o">.</span><span class="n">executable</span><span class="p">,</span> <span class="nb">str</span><span class="p">(</span><span class="n">PULL_DATA_SCRIPT</span><span class="p">)],</span>
+                <span class="n">cwd</span><span class="o">=</span><span class="nb">str</span><span class="p">(</span><span class="n">BASE_DIR</span><span class="p">),</span>
+                <span class="n">stdout</span><span class="o">=</span><span class="n">subprocess</span><span class="o">.</span><span class="n">PIPE</span><span class="p">,</span>
+                <span class="n">stderr</span><span class="o">=</span><span class="n">subprocess</span><span class="o">.</span><span class="n">STDOUT</span><span class="p">,</span>
+                <span class="n">text</span><span class="o">=</span><span class="kc">True</span><span class="p">,</span>
+                <span class="n">bufsize</span><span class="o">=</span><span class="mi">1</span><span class="p">,</span>
+            <span class="p">)</span>
+        <span class="k">except</span> <span class="ne">OSError</span> <span class="k">as</span> <span class="n">exc</span><span class="p">:</span>
+            <span class="k">return</span> <span class="kc">False</span><span class="p">,</span> <span class="sa">f</span><span class="s2">&quot;Could not start Pull Data: </span><span class="si">{</span><span class="n">exc</span><span class="si">}</span><span class="s2">&quot;</span>
+
+        <span class="n">_pull_state</span><span class="p">[</span><span class="s2">&quot;running&quot;</span><span class="p">]</span> <span class="o">=</span> <span class="kc">True</span>
+        <span class="n">_pull_state</span><span class="p">[</span><span class="s2">&quot;started_at&quot;</span><span class="p">]</span> <span class="o">=</span> <span class="n">datetime</span><span class="o">.</span><span class="n">now</span><span class="p">()</span>
+        <span class="n">_pull_state</span><span class="p">[</span><span class="s2">&quot;finished_at&quot;</span><span class="p">]</span> <span class="o">=</span> <span class="kc">None</span>
+        <span class="n">_pull_state</span><span class="p">[</span><span class="s2">&quot;success&quot;</span><span class="p">]</span> <span class="o">=</span> <span class="kc">None</span>
+        <span class="n">_pull_state</span><span class="p">[</span><span class="s2">&quot;message&quot;</span><span class="p">]</span> <span class="o">=</span> <span class="s2">&quot;Pull Data started...&quot;</span>
+
+    <span class="n">threading</span><span class="o">.</span><span class="n">Thread</span><span class="p">(</span><span class="n">target</span><span class="o">=</span><span class="n">_watch_pull_process</span><span class="p">,</span> <span class="n">args</span><span class="o">=</span><span class="p">(</span><span class="n">proc</span><span class="p">,),</span> <span class="n">daemon</span><span class="o">=</span><span class="kc">True</span><span class="p">)</span><span class="o">.</span><span class="n">start</span><span class="p">()</span>
+    <span class="k">return</span> <span class="kc">True</span><span class="p">,</span> <span class="s2">&quot;Started pulling new data from Grad Cafe. This may take a while depending on how much new data is available -- feel free to keep using the page.&quot;</span></div>
+
+
+
+<span class="c1"># --------------------------------------------------------------------------</span>
+<span class="c1"># Part 8: Analysis page (unchanged query logic)</span>
+<span class="c1"># --------------------------------------------------------------------------</span>
+
+
+<div class="viewcode-block" id="_build_analysis_context">
+<a class="viewcode-back" href="../api/flask_app.html#app._build_analysis_context">[docs]</a>
+<span class="k">def</span><span class="w"> </span><span class="nf">_build_analysis_context</span><span class="p">()</span> <span class="o">-&gt;</span> <span class="nb">dict</span><span class="p">:</span>
+<span class="w">    </span><span class="sd">&quot;&quot;&quot;Run every analysis query and build the template context.</span>
+
+<span class="sd">    Queries go through the SQLAlchemy ``Applicant`` model via</span>
+<span class="sd">    ``orm_queries``. Always re-queries -- this is what makes both the</span>
+<span class="sd">    initial page load and the Update Analysis button show current results.</span>
+
+<span class="sd">    :returns: Dict with keys ``results`` (list of ``{number, question,</span>
+<span class="sd">        answer}``), ``gpa_buckets``, ``term_counts``, ``trend`` and</span>
+<span class="sd">        ``generated_at``.</span>
+<span class="sd">    :rtype: dict</span>
+<span class="sd">    &quot;&quot;&quot;</span>
+    <span class="k">with</span> <span class="n">get_session</span><span class="p">()</span> <span class="k">as</span> <span class="n">session</span><span class="p">:</span>
+        <span class="n">results</span> <span class="o">=</span> <span class="p">[</span>
+            <span class="p">{</span>
+                <span class="s2">&quot;number&quot;</span><span class="p">:</span> <span class="mi">1</span><span class="p">,</span>
+                <span class="s2">&quot;question&quot;</span><span class="p">:</span> <span class="s2">&quot;How many entries are from applicants who applied for Fall 2026?&quot;</span><span class="p">,</span>
+                <span class="s2">&quot;answer&quot;</span><span class="p">:</span> <span class="sa">f</span><span class="s2">&quot;</span><span class="si">{</span><span class="n">q</span><span class="o">.</span><span class="n">question_1</span><span class="p">(</span><span class="n">session</span><span class="p">)</span><span class="si">:</span><span class="s2">,</span><span class="si">}</span><span class="s2">&quot;</span><span class="p">,</span>
+            <span class="p">},</span>
+            <span class="p">{</span>
+                <span class="s2">&quot;number&quot;</span><span class="p">:</span> <span class="mi">2</span><span class="p">,</span>
+                <span class="s2">&quot;question&quot;</span><span class="p">:</span> <span class="p">(</span>
+                    <span class="s2">&quot;Among entries that provide a nationality classification, &quot;</span>
+                    <span class="s2">&quot;what percentage are international students?&quot;</span>
+                <span class="p">),</span>
+                <span class="s2">&quot;answer&quot;</span><span class="p">:</span> <span class="sa">f</span><span class="s2">&quot;</span><span class="si">{</span><span class="n">_fmt_pct</span><span class="p">(</span><span class="n">q</span><span class="o">.</span><span class="n">question_2</span><span class="p">(</span><span class="n">session</span><span class="p">))</span><span class="si">}</span><span class="s2">%&quot;</span><span class="p">,</span>
+            <span class="p">},</span>
+        <span class="p">]</span>
+
+        <span class="n">avg_gpa</span><span class="p">,</span> <span class="n">avg_gre_q</span><span class="p">,</span> <span class="n">avg_gre_v</span><span class="p">,</span> <span class="n">avg_gre_aw</span> <span class="o">=</span> <span class="n">q</span><span class="o">.</span><span class="n">question_3</span><span class="p">(</span><span class="n">session</span><span class="p">)</span>
+        <span class="n">results</span><span class="o">.</span><span class="n">append</span><span class="p">(</span>
+            <span class="p">{</span>
+                <span class="s2">&quot;number&quot;</span><span class="p">:</span> <span class="mi">3</span><span class="p">,</span>
+                <span class="s2">&quot;question&quot;</span><span class="p">:</span> <span class="p">(</span>
+                    <span class="s2">&quot;What are the average GPA, GRE Quantitative, GRE Verbal, and GRE &quot;</span>
+                    <span class="s2">&quot;Analytical Writing scores of applicants who provide each metric?&quot;</span>
+                <span class="p">),</span>
+                <span class="s2">&quot;answer&quot;</span><span class="p">:</span> <span class="p">(</span>
+                    <span class="sa">f</span><span class="s2">&quot;GPA: </span><span class="si">{</span><span class="n">avg_gpa</span><span class="si">}</span><span class="s2"> &amp;nbsp;|&amp;nbsp; GRE Quant: </span><span class="si">{</span><span class="n">avg_gre_q</span><span class="si">}</span><span class="s2"> &amp;nbsp;|&amp;nbsp; &quot;</span>
+                    <span class="sa">f</span><span class="s2">&quot;GRE Verbal: </span><span class="si">{</span><span class="n">avg_gre_v</span><span class="si">}</span><span class="s2"> &amp;nbsp;|&amp;nbsp; GRE AW: </span><span class="si">{</span><span class="n">avg_gre_aw</span><span class="si">}</span><span class="s2">&quot;</span>
+                <span class="p">),</span>
+            <span class="p">}</span>
+        <span class="p">)</span>
+
+        <span class="n">results</span><span class="o">.</span><span class="n">append</span><span class="p">(</span>
+            <span class="p">{</span>
+                <span class="s2">&quot;number&quot;</span><span class="p">:</span> <span class="mi">4</span><span class="p">,</span>
+                <span class="s2">&quot;question&quot;</span><span class="p">:</span> <span class="s2">&quot;What is the average GPA of American applicants who applied for Fall 2026?&quot;</span><span class="p">,</span>
+                <span class="s2">&quot;answer&quot;</span><span class="p">:</span> <span class="nb">str</span><span class="p">(</span><span class="n">q</span><span class="o">.</span><span class="n">question_4</span><span class="p">(</span><span class="n">session</span><span class="p">)),</span>
+            <span class="p">}</span>
+        <span class="p">)</span>
+        <span class="n">results</span><span class="o">.</span><span class="n">append</span><span class="p">(</span>
+            <span class="p">{</span>
+                <span class="s2">&quot;number&quot;</span><span class="p">:</span> <span class="mi">5</span><span class="p">,</span>
+                <span class="s2">&quot;question&quot;</span><span class="p">:</span> <span class="s2">&quot;What percentage of Fall 2025 entries are acceptances?&quot;</span><span class="p">,</span>
+                <span class="s2">&quot;answer&quot;</span><span class="p">:</span> <span class="sa">f</span><span class="s2">&quot;</span><span class="si">{</span><span class="n">_fmt_pct</span><span class="p">(</span><span class="n">q</span><span class="o">.</span><span class="n">question_5</span><span class="p">(</span><span class="n">session</span><span class="p">))</span><span class="si">}</span><span class="s2">%&quot;</span><span class="p">,</span>
+            <span class="p">}</span>
+        <span class="p">)</span>
+        <span class="n">results</span><span class="o">.</span><span class="n">append</span><span class="p">(</span>
+            <span class="p">{</span>
+                <span class="s2">&quot;number&quot;</span><span class="p">:</span> <span class="mi">6</span><span class="p">,</span>
+                <span class="s2">&quot;question&quot;</span><span class="p">:</span> <span class="s2">&quot;What is the average GPA of accepted applicants who applied for Fall 2025?&quot;</span><span class="p">,</span>
+                <span class="s2">&quot;answer&quot;</span><span class="p">:</span> <span class="nb">str</span><span class="p">(</span><span class="n">q</span><span class="o">.</span><span class="n">question_6</span><span class="p">(</span><span class="n">session</span><span class="p">)),</span>
+            <span class="p">}</span>
+        <span class="p">)</span>
+        <span class="n">results</span><span class="o">.</span><span class="n">append</span><span class="p">(</span>
+            <span class="p">{</span>
+                <span class="s2">&quot;number&quot;</span><span class="p">:</span> <span class="mi">7</span><span class="p">,</span>
+                <span class="s2">&quot;question&quot;</span><span class="p">:</span> <span class="p">(</span>
+                    <span class="s2">&quot;How many entries are from applicants who applied to Johns Hopkins &quot;</span>
+                    <span class="s2">&quot;University for a master&#39;s degree in Computer Science?&quot;</span>
+                <span class="p">),</span>
+                <span class="s2">&quot;answer&quot;</span><span class="p">:</span> <span class="sa">f</span><span class="s2">&quot;</span><span class="si">{</span><span class="n">q</span><span class="o">.</span><span class="n">question_7</span><span class="p">(</span><span class="n">session</span><span class="p">)</span><span class="si">:</span><span class="s2">,</span><span class="si">}</span><span class="s2">&quot;</span><span class="p">,</span>
+            <span class="p">}</span>
+        <span class="p">)</span>
+
+        <span class="n">original_field_count</span> <span class="o">=</span> <span class="n">q</span><span class="o">.</span><span class="n">question_8</span><span class="p">(</span><span class="n">session</span><span class="p">)</span>
+        <span class="n">results</span><span class="o">.</span><span class="n">append</span><span class="p">(</span>
+            <span class="p">{</span>
+                <span class="s2">&quot;number&quot;</span><span class="p">:</span> <span class="mi">8</span><span class="p">,</span>
+                <span class="s2">&quot;question&quot;</span><span class="p">:</span> <span class="p">(</span>
+                    <span class="s2">&quot;How many Fall 2026 entries are acceptances from applicants applying for a &quot;</span>
+                    <span class="s2">&quot;PhD in Computer Science at Georgetown, MIT, Stanford, or Carnegie Mellon?&quot;</span>
+                <span class="p">),</span>
+                <span class="s2">&quot;answer&quot;</span><span class="p">:</span> <span class="sa">f</span><span class="s2">&quot;</span><span class="si">{</span><span class="n">original_field_count</span><span class="si">:</span><span class="s2">,</span><span class="si">}</span><span class="s2">&quot;</span><span class="p">,</span>
+            <span class="p">}</span>
+        <span class="p">)</span>
+
+        <span class="n">llm_field_count</span> <span class="o">=</span> <span class="n">q</span><span class="o">.</span><span class="n">question_9</span><span class="p">(</span><span class="n">session</span><span class="p">)</span>
+        <span class="n">diff</span> <span class="o">=</span> <span class="n">llm_field_count</span> <span class="o">-</span> <span class="n">original_field_count</span>
+        <span class="n">results</span><span class="o">.</span><span class="n">append</span><span class="p">(</span>
+            <span class="p">{</span>
+                <span class="s2">&quot;number&quot;</span><span class="p">:</span> <span class="mi">9</span><span class="p">,</span>
+                <span class="s2">&quot;question&quot;</span><span class="p">:</span> <span class="s2">&quot;Repeat Question 8, but identify university/program using the LLM-generated fields.&quot;</span><span class="p">,</span>
+                <span class="s2">&quot;answer&quot;</span><span class="p">:</span> <span class="p">(</span>
+                    <span class="sa">f</span><span class="s2">&quot;</span><span class="si">{</span><span class="n">llm_field_count</span><span class="si">:</span><span class="s2">,</span><span class="si">}</span><span class="s2"> &quot;</span>
+                    <span class="sa">f</span><span class="s2">&quot;(original-field count was </span><span class="si">{</span><span class="n">original_field_count</span><span class="si">:</span><span class="s2">,</span><span class="si">}</span><span class="s2">, &quot;</span>
+                    <span class="sa">f</span><span class="s2">&quot;a difference of </span><span class="si">{</span><span class="n">diff</span><span class="si">:</span><span class="s2">+,</span><span class="si">}</span><span class="s2">)&quot;</span>
+                <span class="p">),</span>
+            <span class="p">}</span>
+        <span class="p">)</span>
+
+        <span class="c1"># -- Original question 1: acceptance rate by GPA bucket ------------</span>
+        <span class="n">gpa_bucket_rows</span> <span class="o">=</span> <span class="n">q</span><span class="o">.</span><span class="n">additional_question_1</span><span class="p">(</span><span class="n">session</span><span class="p">)</span>
+        <span class="n">gpa_buckets</span> <span class="o">=</span> <span class="p">[</span>
+            <span class="p">{</span>
+                <span class="s2">&quot;label&quot;</span><span class="p">:</span> <span class="n">label</span><span class="p">,</span>
+                <span class="s2">&quot;total&quot;</span><span class="p">:</span> <span class="n">total_in_bucket</span><span class="p">,</span>
+                <span class="s2">&quot;pct&quot;</span><span class="p">:</span> <span class="n">_fmt_pct</span><span class="p">(</span><span class="n">acceptance_pct</span><span class="p">),</span>
+            <span class="p">}</span>
+            <span class="k">for</span> <span class="n">label</span><span class="p">,</span> <span class="n">total_in_bucket</span><span class="p">,</span> <span class="n">acceptance_pct</span> <span class="ow">in</span> <span class="n">gpa_bucket_rows</span>
+        <span class="p">]</span>
+
+        <span class="c1"># -- Original question 2: applicant volume by term, with trend -----</span>
+        <span class="n">term_count_rows</span> <span class="o">=</span> <span class="n">q</span><span class="o">.</span><span class="n">additional_question_2</span><span class="p">(</span><span class="n">session</span><span class="p">)</span>
+        <span class="n">term_counts</span> <span class="o">=</span> <span class="p">[{</span><span class="s2">&quot;term&quot;</span><span class="p">:</span> <span class="n">term</span><span class="p">,</span> <span class="s2">&quot;count&quot;</span><span class="p">:</span> <span class="n">count</span><span class="p">}</span> <span class="k">for</span> <span class="n">term</span><span class="p">,</span> <span class="n">count</span> <span class="ow">in</span> <span class="n">term_count_rows</span><span class="p">]</span>
+        <span class="n">max_term_count</span> <span class="o">=</span> <span class="nb">max</span><span class="p">((</span><span class="n">row</span><span class="p">[</span><span class="s2">&quot;count&quot;</span><span class="p">]</span> <span class="k">for</span> <span class="n">row</span> <span class="ow">in</span> <span class="n">term_counts</span><span class="p">),</span> <span class="n">default</span><span class="o">=</span><span class="mi">0</span><span class="p">)</span>
+        <span class="k">for</span> <span class="n">row</span> <span class="ow">in</span> <span class="n">term_counts</span><span class="p">:</span>
+            <span class="n">row</span><span class="p">[</span><span class="s2">&quot;pct_of_max&quot;</span><span class="p">]</span> <span class="o">=</span> <span class="p">(</span>
+                <span class="n">_fmt_pct</span><span class="p">(</span><span class="n">row</span><span class="p">[</span><span class="s2">&quot;count&quot;</span><span class="p">]</span> <span class="o">/</span> <span class="n">max_term_count</span> <span class="o">*</span> <span class="mi">100</span><span class="p">)</span> <span class="k">if</span> <span class="n">max_term_count</span> <span class="k">else</span> <span class="s2">&quot;0.00&quot;</span>
+            <span class="p">)</span>
+
+        <span class="n">trend</span> <span class="o">=</span> <span class="s2">&quot;no data&quot;</span>
+        <span class="k">if</span> <span class="nb">len</span><span class="p">(</span><span class="n">term_count_rows</span><span class="p">)</span> <span class="o">&gt;=</span> <span class="mi">2</span><span class="p">:</span>
+            <span class="n">first_count</span><span class="p">,</span> <span class="n">last_count</span> <span class="o">=</span> <span class="n">term_count_rows</span><span class="p">[</span><span class="mi">0</span><span class="p">][</span><span class="mi">1</span><span class="p">],</span> <span class="n">term_count_rows</span><span class="p">[</span><span class="o">-</span><span class="mi">1</span><span class="p">][</span><span class="mi">1</span><span class="p">]</span>
+            <span class="k">if</span> <span class="n">last_count</span> <span class="o">&gt;</span> <span class="n">first_count</span><span class="p">:</span>
+                <span class="n">trend</span> <span class="o">=</span> <span class="s2">&quot;trending up&quot;</span>
+            <span class="k">elif</span> <span class="n">last_count</span> <span class="o">&lt;</span> <span class="n">first_count</span><span class="p">:</span>
+                <span class="n">trend</span> <span class="o">=</span> <span class="s2">&quot;trending down&quot;</span>
+            <span class="k">else</span><span class="p">:</span>
+                <span class="n">trend</span> <span class="o">=</span> <span class="s2">&quot;no clear trend&quot;</span>
+
+    <span class="k">return</span> <span class="p">{</span>
+        <span class="s2">&quot;results&quot;</span><span class="p">:</span> <span class="n">results</span><span class="p">,</span>
+        <span class="s2">&quot;gpa_buckets&quot;</span><span class="p">:</span> <span class="n">gpa_buckets</span><span class="p">,</span>
+        <span class="s2">&quot;term_counts&quot;</span><span class="p">:</span> <span class="n">term_counts</span><span class="p">,</span>
+        <span class="s2">&quot;trend&quot;</span><span class="p">:</span> <span class="n">trend</span><span class="p">,</span>
+        <span class="s2">&quot;generated_at&quot;</span><span class="p">:</span> <span class="n">datetime</span><span class="o">.</span><span class="n">now</span><span class="p">()</span><span class="o">.</span><span class="n">strftime</span><span class="p">(</span><span class="s2">&quot;%B </span><span class="si">%d</span><span class="s2">, %Y at %I:%M %p&quot;</span><span class="p">),</span>
+    <span class="p">}</span></div>
+
+
+
+<div class="viewcode-block" id="analysis">
+<a class="viewcode-back" href="../api/flask_app.html#app.analysis">[docs]</a>
+<span class="nd">@app</span><span class="o">.</span><span class="n">route</span><span class="p">(</span><span class="s2">&quot;/&quot;</span><span class="p">)</span>
+<span class="k">def</span><span class="w"> </span><span class="nf">analysis</span><span class="p">()</span> <span class="o">-&gt;</span> <span class="nb">str</span><span class="p">:</span>
+<span class="w">    </span><span class="sd">&quot;&quot;&quot;``GET /`` -- render the analysis page.</span>
+
+<span class="sd">    :returns: Rendered ``index.html`` with fresh query results and the</span>
+<span class="sd">        current pull status.</span>
+<span class="sd">    :rtype: str</span>
+<span class="sd">    &quot;&quot;&quot;</span>
+    <span class="n">context</span> <span class="o">=</span> <span class="n">_build_analysis_context</span><span class="p">()</span>
+    <span class="n">context</span><span class="p">[</span><span class="s2">&quot;pull_status&quot;</span><span class="p">]</span> <span class="o">=</span> <span class="n">_pull_status_snapshot</span><span class="p">()</span>
+    <span class="k">return</span> <span class="n">render_template</span><span class="p">(</span><span class="s2">&quot;index.html&quot;</span><span class="p">,</span> <span class="o">**</span><span class="n">context</span><span class="p">)</span></div>
+
+
+
+<span class="c1"># --------------------------------------------------------------------------</span>
+<span class="c1"># Part 9: Pull Data routes</span>
+<span class="c1"># --------------------------------------------------------------------------</span>
+
+
+<div class="viewcode-block" id="pull_data">
+<a class="viewcode-back" href="../api/flask_app.html#app.pull_data">[docs]</a>
+<span class="nd">@app</span><span class="o">.</span><span class="n">route</span><span class="p">(</span><span class="s2">&quot;/pull-data&quot;</span><span class="p">,</span> <span class="n">methods</span><span class="o">=</span><span class="p">[</span><span class="s2">&quot;POST&quot;</span><span class="p">])</span>
+<span class="k">def</span><span class="w"> </span><span class="nf">pull_data</span><span class="p">():</span>
+<span class="w">    </span><span class="sd">&quot;&quot;&quot;``POST /pull-data`` -- start a background data pull.</span>
+
+<span class="sd">    :returns: ``200`` with ``{&quot;started&quot;: true, &quot;message&quot;: ...}``, or</span>
+<span class="sd">        ``409`` with ``{&quot;error&quot;: ...}`` if a pull is already running.</span>
+<span class="sd">    :rtype: tuple[flask.Response, int]</span>
+<span class="sd">    &quot;&quot;&quot;</span>
+    <span class="k">if</span> <span class="n">_pull_is_running</span><span class="p">():</span>
+        <span class="k">return</span> <span class="n">jsonify</span><span class="p">({</span><span class="s2">&quot;error&quot;</span><span class="p">:</span> <span class="s2">&quot;A data pull is already in progress.&quot;</span><span class="p">}),</span> <span class="mi">409</span>
+
+    <span class="n">started</span><span class="p">,</span> <span class="n">message</span> <span class="o">=</span> <span class="n">start_pull_data</span><span class="p">()</span>
+    <span class="k">if</span> <span class="ow">not</span> <span class="n">started</span><span class="p">:</span>
+        <span class="c1"># Lost a race with another request between the check above and</span>
+        <span class="c1"># start_pull_data()&#39;s own lock -- still busy, so still a 409.</span>
+        <span class="k">return</span> <span class="n">jsonify</span><span class="p">({</span><span class="s2">&quot;error&quot;</span><span class="p">:</span> <span class="n">message</span><span class="p">}),</span> <span class="mi">409</span>
+
+    <span class="k">return</span> <span class="n">jsonify</span><span class="p">({</span><span class="s2">&quot;started&quot;</span><span class="p">:</span> <span class="kc">True</span><span class="p">,</span> <span class="s2">&quot;message&quot;</span><span class="p">:</span> <span class="n">message</span><span class="p">}),</span> <span class="mi">200</span></div>
+
+
+
+<div class="viewcode-block" id="pull_data_status">
+<a class="viewcode-back" href="../api/flask_app.html#app.pull_data_status">[docs]</a>
+<span class="nd">@app</span><span class="o">.</span><span class="n">route</span><span class="p">(</span><span class="s2">&quot;/pull-data/status&quot;</span><span class="p">)</span>
+<span class="k">def</span><span class="w"> </span><span class="nf">pull_data_status</span><span class="p">():</span>
+<span class="w">    </span><span class="sd">&quot;&quot;&quot;``GET /pull-data/status`` -- report the current pull state.</span>
+
+<span class="sd">    :returns: JSON from :func:`_pull_status_snapshot`.</span>
+<span class="sd">    :rtype: flask.Response</span>
+<span class="sd">    &quot;&quot;&quot;</span>
+    <span class="k">return</span> <span class="n">jsonify</span><span class="p">(</span><span class="n">_pull_status_snapshot</span><span class="p">())</span></div>
+
+
+
+<span class="c1"># --------------------------------------------------------------------------</span>
+<span class="c1"># Part 10: Update Analysis</span>
+<span class="c1">#</span>
+<span class="c1"># &quot;/&quot; already re-queries Postgres on every request, so refreshing the</span>
+<span class="c1"># results on demand is just running _build_analysis_context() again.</span>
+<span class="c1"># Gated on the same busy flag as Pull Data: while a pull is writing new</span>
+<span class="c1"># rows, an update is refused outright (409, no query is run) rather than</span>
+<span class="c1"># racing it.</span>
+<span class="c1"># --------------------------------------------------------------------------</span>
+
+
+<div class="viewcode-block" id="update_analysis">
+<a class="viewcode-back" href="../api/flask_app.html#app.update_analysis">[docs]</a>
+<span class="nd">@app</span><span class="o">.</span><span class="n">route</span><span class="p">(</span><span class="s2">&quot;/update-analysis&quot;</span><span class="p">,</span> <span class="n">methods</span><span class="o">=</span><span class="p">[</span><span class="s2">&quot;POST&quot;</span><span class="p">])</span>
+<span class="k">def</span><span class="w"> </span><span class="nf">update_analysis</span><span class="p">():</span>
+<span class="w">    </span><span class="sd">&quot;&quot;&quot;``POST /update-analysis`` -- re-run the analysis queries.</span>
+
+<span class="sd">    :returns: ``200`` with ``{&quot;updated&quot;: true, &quot;generated_at&quot;: ...}``, or</span>
+<span class="sd">        ``409`` with ``{&quot;error&quot;: ...}`` while a pull is running (no query</span>
+<span class="sd">        is executed in that case).</span>
+<span class="sd">    :rtype: tuple[flask.Response, int]</span>
+<span class="sd">    &quot;&quot;&quot;</span>
+    <span class="k">if</span> <span class="n">_pull_is_running</span><span class="p">():</span>
+        <span class="k">return</span> <span class="n">jsonify</span><span class="p">({</span><span class="s2">&quot;error&quot;</span><span class="p">:</span> <span class="s2">&quot;A data pull is in progress; try again once it finishes.&quot;</span><span class="p">}),</span> <span class="mi">409</span>
+
+    <span class="n">context</span> <span class="o">=</span> <span class="n">_build_analysis_context</span><span class="p">()</span>
+    <span class="k">return</span> <span class="n">jsonify</span><span class="p">({</span><span class="s2">&quot;updated&quot;</span><span class="p">:</span> <span class="kc">True</span><span class="p">,</span> <span class="s2">&quot;generated_at&quot;</span><span class="p">:</span> <span class="n">context</span><span class="p">[</span><span class="s2">&quot;generated_at&quot;</span><span class="p">]}),</span> <span class="mi">200</span></div>
+
+
+
+<span class="k">if</span> <span class="vm">__name__</span> <span class="o">==</span> <span class="s2">&quot;__main__&quot;</span><span class="p">:</span>
+    <span class="n">app</span><span class="o">.</span><span class="n">run</span><span class="p">(</span><span class="n">debug</span><span class="o">=</span><span class="kc">True</span><span class="p">)</span>
+</pre></div>
+
+           </div>
+          </div>
+          <footer>
+
+  <hr/>
+
+  <div role="contentinfo">
+    <p>&#169; Copyright 2026, Shane Battles (sbattl15).</p>
+  </div>
+
+  Built with <a href="https://www.sphinx-doc.org/">Sphinx</a> using a
+    <a href="https://github.com/readthedocs/sphinx_rtd_theme">theme</a>
+    provided by <a href="https://readthedocs.org">Read the Docs</a>.
+   
+
+</footer>
+        </div>
+      </div>
+    </section>
+  </div>
+  <script>
+      jQuery(function () {
+          SphinxRtdTheme.Navigation.enable(true);
+      });
+  </script> 
+
+</body>
+</html>

@@ -1,3 +1,31 @@
+"""Flask web application for the GradCafe analysis dashboard.
+
+This module is the **web layer**. It renders the analysis page (answers to
+the assignment questions, queried live from PostgreSQL via
+``orm_queries``), and exposes two buttons backed by JSON endpoints:
+
+* **Pull Data** -- ``POST /pull-data`` launches ``pull_data.py`` (scrape ->
+  clean -> load) in a background subprocess; ``GET /pull-data/status``
+  reports its progress.
+* **Update Analysis** -- ``POST /update-analysis`` re-runs every query.
+  It is refused with HTTP 409 while a pull is running.
+
+Routes
+------
+
+=========================  ======  ==========================================
+Route                      Method  Purpose
+=========================  ======  ==========================================
+``/``                      GET     Render ``index.html`` with fresh results.
+``/pull-data``             POST    Start a background data pull (409 if busy).
+``/pull-data/status``      GET     JSON snapshot of the pull state.
+``/update-analysis``       POST    Re-query the analysis (409 if pulling).
+=========================  ======  ==========================================
+
+Environment variables: ``FLASK_SECRET_KEY`` plus whatever ``models``
+uses to connect to the database (e.g. ``DATABASE_URL``).
+"""
+
 from __future__ import annotations
 
 import os
@@ -12,10 +40,13 @@ from flask import Flask, jsonify, render_template
 import orm_queries as q
 from models import get_session
 
+#: The Flask application instance.
 app = Flask(__name__)
 app.secret_key = os.environ.get("FLASK_SECRET_KEY", "dev-secret-change-me")
 
+#: Directory containing this file; used as the subprocess working directory.
 BASE_DIR = Path(__file__).resolve().parent
+#: Script launched by the Pull Data button.
 PULL_DATA_SCRIPT = BASE_DIR / "pull_data.py"
 
 # --------------------------------------------------------------------------
@@ -33,10 +64,21 @@ _pull_state: dict = {
 
 
 def _iso(dt) -> str | None:
+    """Return ``dt`` as an ISO-8601 string, or ``None``.
+
+    :param dt: A :class:`datetime.datetime` or ``None``.
+    :rtype: str or None
+    """
     return dt.isoformat() if dt else None
 
 
 def _pull_status_snapshot() -> dict:
+    """Return a JSON-serialisable, thread-safe copy of the pull state.
+
+    :returns: Dict with ``running``, ``started_at``, ``finished_at``,
+        ``success`` and ``message``.
+    :rtype: dict
+    """
     with _pull_lock:
         return {
             "running": _pull_state["running"],
@@ -48,31 +90,50 @@ def _pull_status_snapshot() -> dict:
 
 
 def _pull_is_running() -> bool:
-    """Cheap busy check that /pull-data and /update-analysis gate on, so
-    a click can't start a second concurrent pull and an analysis refresh
-    can't race a pull that's mid-write."""
+    """Return whether a data pull is currently running.
+
+    ``/pull-data`` and ``/update-analysis`` gate on this so a click can't
+    start a second concurrent pull and an analysis refresh can't race a
+    pull that's mid-write.
+
+    :rtype: bool
+    """
     with _pull_lock:
         return _pull_state["running"]
 
 
 def _fmt_pct(value) -> str:
-    """Formats a percentage with exactly two decimal places, regardless of
-    whether the DB driver handed back a Decimal, a float, or an int (and
-    regardless of how many/few decimal places that value happened to
-    carry) -- so the page never shows "42%" or "42.5%", only "42.00%".
-    A None (e.g. a percentage of zero rows -- NULLIF-guarded division by
-    zero -- comes back NULL/None from Postgres) renders as "0.00" rather
-    than raising."""
+    """Format a percentage with exactly two decimal places.
+
+    Works whether the DB driver returns a ``Decimal``, ``float`` or ``int``,
+    so the page never shows ``"42%"`` or ``"42.5%"`` -- only ``"42.00"``.
+    ``None`` (e.g. a NULLIF-guarded division by zero) renders as ``"0.00"``.
+
+    :param value: Numeric value or ``None``.
+    :returns: The formatted number (without a ``%`` sign).
+    :rtype: str
+
+    >>> _fmt_pct(42.5)
+    '42.50'
+    >>> _fmt_pct(None)
+    '0.00'
+    """
     if value is None:
         return "0.00"
     return f"{float(value):.2f}"
 
 
 def _watch_pull_process(proc: subprocess.Popen) -> None:
-    """Runs in a background thread: waits for the Pull Data subprocess to
-    finish, parses its final PULL_DATA_SUMMARY::{...} line if present, and
-    updates the shared status dict. Never touches the request/response
-    cycle, so it can't block a page load."""
+    """Wait for the Pull Data subprocess and record its outcome.
+
+    Runs in a background thread. Streams the subprocess output, parses the
+    final ``PULL_DATA_SUMMARY::{...}`` JSON line if present, and updates the
+    shared status dict. Never touches the request/response cycle, so it
+    can't block a page load.
+
+    :param proc: The running ``pull_data.py`` process (stdout piped, text mode).
+    :rtype: None
+    """
     summary_line = None
     tail_lines: list[str] = []
     try:
@@ -122,8 +183,14 @@ def _watch_pull_process(proc: subprocess.Popen) -> None:
 
 
 def start_pull_data() -> tuple[bool, str]:
-    """Starts pull_data.py in a background subprocess if one isn't already
-    running. Returns (started, message)."""
+    """Start ``pull_data.py`` in a background subprocess if none is running.
+
+    A daemon thread running :func:`_watch_pull_process` tracks completion.
+
+    :returns: ``(started, message)`` -- ``started`` is ``False`` if a pull
+        was already running or the process could not be launched.
+    :rtype: tuple[bool, str]
+    """
     with _pull_lock:
         if _pull_state["running"]:
             started_at = _pull_state["started_at"]
@@ -158,11 +225,17 @@ def start_pull_data() -> tuple[bool, str]:
 
 
 def _build_analysis_context() -> dict:
-    """Runs every analysis question against Postgres (through the
-    SQLAlchemy Applicant model, via orm_queries.py) and returns the
-    template context. Always re-queries -- this is what makes both the
-    initial page load and the Update Analysis button "re-query and
-    display the most current results"."""
+    """Run every analysis query and build the template context.
+
+    Queries go through the SQLAlchemy ``Applicant`` model via
+    ``orm_queries``. Always re-queries -- this is what makes both the
+    initial page load and the Update Analysis button show current results.
+
+    :returns: Dict with keys ``results`` (list of ``{number, question,
+        answer}``), ``gpa_buckets``, ``term_counts``, ``trend`` and
+        ``generated_at``.
+    :rtype: dict
+    """
     with get_session() as session:
         results = [
             {
@@ -294,6 +367,12 @@ def _build_analysis_context() -> dict:
 
 @app.route("/")
 def analysis() -> str:
+    """``GET /`` -- render the analysis page.
+
+    :returns: Rendered ``index.html`` with fresh query results and the
+        current pull status.
+    :rtype: str
+    """
     context = _build_analysis_context()
     context["pull_status"] = _pull_status_snapshot()
     return render_template("index.html", **context)
@@ -306,6 +385,12 @@ def analysis() -> str:
 
 @app.route("/pull-data", methods=["POST"])
 def pull_data():
+    """``POST /pull-data`` -- start a background data pull.
+
+    :returns: ``200`` with ``{"started": true, "message": ...}``, or
+        ``409`` with ``{"error": ...}`` if a pull is already running.
+    :rtype: tuple[flask.Response, int]
+    """
     if _pull_is_running():
         return jsonify({"error": "A data pull is already in progress."}), 409
 
@@ -320,6 +405,11 @@ def pull_data():
 
 @app.route("/pull-data/status")
 def pull_data_status():
+    """``GET /pull-data/status`` -- report the current pull state.
+
+    :returns: JSON from :func:`_pull_status_snapshot`.
+    :rtype: flask.Response
+    """
     return jsonify(_pull_status_snapshot())
 
 
@@ -336,6 +426,13 @@ def pull_data_status():
 
 @app.route("/update-analysis", methods=["POST"])
 def update_analysis():
+    """``POST /update-analysis`` -- re-run the analysis queries.
+
+    :returns: ``200`` with ``{"updated": true, "generated_at": ...}``, or
+        ``409`` with ``{"error": ...}`` while a pull is running (no query
+        is executed in that case).
+    :rtype: tuple[flask.Response, int]
+    """
     if _pull_is_running():
         return jsonify({"error": "A data pull is in progress; try again once it finishes."}), 409
 

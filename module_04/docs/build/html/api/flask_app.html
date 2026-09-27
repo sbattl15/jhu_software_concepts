@@ -1,0 +1,381 @@
+
+
+<!DOCTYPE html>
+<html class="writer-html5" lang="en" data-content_root="../">
+<head>
+  <meta charset="utf-8" /><meta name="viewport" content="width=device-width, initial-scale=1" />
+
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>app – Flask Application &amp; Routes &mdash; GradCafe Analytics</title>
+      <link rel="stylesheet" type="text/css" href="../_static/pygments.css?v=b86133f3" />
+      <link rel="stylesheet" type="text/css" href="../_static/css/theme.css?v=9edc463e" />
+
+  
+      <script src="../_static/jquery.js?v=5d32c60e"></script>
+      <script src="../_static/_sphinx_javascript_frameworks_compat.js?v=2cd50e6c"></script>
+      <script src="../_static/documentation_options.js?v=f2a433a1"></script>
+      <script src="../_static/doctools.js?v=fd6eb6e6"></script>
+      <script src="../_static/sphinx_highlight.js?v=6ffebe34"></script>
+    <script src="../_static/js/theme.js"></script>
+    <link rel="index" title="Index" href="../genindex.html" />
+    <link rel="search" title="Search" href="../search.html" />
+    <link rel="next" title="pull_data – Pull Data Pipeline" href="pull_data.html" />
+    <link rel="prev" title="query_data – SQL Analysis" href="query_data.html" /> 
+</head>
+
+<body class="wy-body-for-nav"> 
+  <div class="wy-grid-for-nav">
+    <nav data-toggle="wy-nav-shift" class="wy-nav-side">
+      <div class="wy-side-scroll">
+        <div class="wy-side-nav-search" >
+
+          
+          
+          <a href="../index.html" class="icon icon-home">
+            GradCafe Analytics
+          </a>
+<div role="search">
+  <form id="rtd-search-form" class="wy-form" action="../search.html" method="get">
+    <input type="text" name="q" placeholder="Search docs" aria-label="Search docs" />
+    <input type="hidden" name="check_keywords" value="yes" />
+    <input type="hidden" name="area" value="default" />
+  </form>
+</div>
+        </div><div class="wy-menu wy-menu-vertical" data-spy="affix" role="navigation" aria-label="Navigation menu">
+              <p class="caption" role="heading"><span class="caption-text">Guide</span></p>
+<ul>
+<li class="toctree-l1"><a class="reference internal" href="../overview.html">Overview &amp; Setup</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../architecture.html">Architecture</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../testing.html">Testing Guide</a></li>
+</ul>
+<p class="caption" role="heading"><span class="caption-text">API Reference</span></p>
+<ul class="current">
+<li class="toctree-l1 current"><a class="reference internal" href="index.html">API Reference</a><ul class="current">
+<li class="toctree-l2"><a class="reference internal" href="scrape.html">scrape – Extract</a></li>
+<li class="toctree-l2"><a class="reference internal" href="clean.html">clean – Transform</a></li>
+<li class="toctree-l2"><a class="reference internal" href="load_data.html">load_data – Load</a></li>
+<li class="toctree-l2"><a class="reference internal" href="query_data.html">query_data – SQL Analysis</a></li>
+<li class="toctree-l2 current"><a class="current reference internal" href="#">app – Flask Application &amp; Routes</a><ul>
+<li class="toctree-l3"><a class="reference internal" href="#routes">Routes</a></li>
+<li class="toctree-l3"><a class="reference internal" href="#http-routes">HTTP routes</a><ul>
+<li class="toctree-l4"><a class="reference internal" href="#app.analysis"><code class="docutils literal notranslate"><span class="pre">analysis()</span></code></a></li>
+<li class="toctree-l4"><a class="reference internal" href="#app.pull_data"><code class="docutils literal notranslate"><span class="pre">pull_data()</span></code></a></li>
+<li class="toctree-l4"><a class="reference internal" href="#app.pull_data_status"><code class="docutils literal notranslate"><span class="pre">pull_data_status()</span></code></a></li>
+<li class="toctree-l4"><a class="reference internal" href="#app.update_analysis"><code class="docutils literal notranslate"><span class="pre">update_analysis()</span></code></a></li>
+</ul>
+</li>
+<li class="toctree-l3"><a class="reference internal" href="#pull-data-control">Pull Data control</a><ul>
+<li class="toctree-l4"><a class="reference internal" href="#app.start_pull_data"><code class="docutils literal notranslate"><span class="pre">start_pull_data()</span></code></a></li>
+<li class="toctree-l4"><a class="reference internal" href="#app._watch_pull_process"><code class="docutils literal notranslate"><span class="pre">_watch_pull_process()</span></code></a></li>
+<li class="toctree-l4"><a class="reference internal" href="#app._pull_is_running"><code class="docutils literal notranslate"><span class="pre">_pull_is_running()</span></code></a></li>
+<li class="toctree-l4"><a class="reference internal" href="#app._pull_status_snapshot"><code class="docutils literal notranslate"><span class="pre">_pull_status_snapshot()</span></code></a></li>
+</ul>
+</li>
+<li class="toctree-l3"><a class="reference internal" href="#analysis-helpers">Analysis helpers</a><ul>
+<li class="toctree-l4"><a class="reference internal" href="#app._build_analysis_context"><code class="docutils literal notranslate"><span class="pre">_build_analysis_context()</span></code></a></li>
+<li class="toctree-l4"><a class="reference internal" href="#app._fmt_pct"><code class="docutils literal notranslate"><span class="pre">_fmt_pct()</span></code></a></li>
+<li class="toctree-l4"><a class="reference internal" href="#app._iso"><code class="docutils literal notranslate"><span class="pre">_iso()</span></code></a></li>
+</ul>
+</li>
+</ul>
+</li>
+<li class="toctree-l2"><a class="reference internal" href="pull_data.html">pull_data – Pull Data Pipeline</a></li>
+</ul>
+</li>
+</ul>
+
+        </div>
+      </div>
+    </nav>
+
+    <section data-toggle="wy-nav-shift" class="wy-nav-content-wrap"><nav class="wy-nav-top" aria-label="Mobile navigation menu" >
+          <i data-toggle="wy-nav-top" class="fa fa-bars"></i>
+          <a href="../index.html">GradCafe Analytics</a>
+      </nav>
+
+      <div class="wy-nav-content">
+        <div class="rst-content">
+          <div role="navigation" aria-label="Page navigation">
+  <ul class="wy-breadcrumbs">
+      <li><a href="../index.html" class="icon icon-home" aria-label="Home"></a></li>
+          <li class="breadcrumb-item"><a href="index.html">API Reference</a></li>
+      <li class="breadcrumb-item active">app – Flask Application &amp; Routes</li>
+      <li class="wy-breadcrumbs-aside">
+            <a href="../_sources/api/flask_app.rst.txt" rel="nofollow"> View page source</a>
+      </li>
+  </ul>
+  <hr/>
+</div>
+          <div role="main" class="document" itemscope="itemscope" itemtype="http://schema.org/Article">
+           <div itemprop="articleBody">
+             
+  <section id="app-flask-application-routes">
+<h1>app – Flask Application &amp; Routes<a class="headerlink" href="#app-flask-application-routes" title="Link to this heading"></a></h1>
+<p><code class="docutils literal notranslate"><span class="pre">src/flask_website/app.py</span></code></p>
+<p id="module-app">Flask web application for the GradCafe analysis dashboard.</p>
+<p>This module is the <strong>web layer</strong>. It renders the analysis page (answers to
+the assignment questions, queried live from PostgreSQL via
+<code class="docutils literal notranslate"><span class="pre">orm_queries</span></code>), and exposes two buttons backed by JSON endpoints:</p>
+<ul class="simple">
+<li><p><strong>Pull Data</strong> – <code class="docutils literal notranslate"><span class="pre">POST</span> <span class="pre">/pull-data</span></code> launches <code class="docutils literal notranslate"><span class="pre">pull_data.py</span></code> (scrape -&gt;
+clean -&gt; load) in a background subprocess; <code class="docutils literal notranslate"><span class="pre">GET</span> <span class="pre">/pull-data/status</span></code>
+reports its progress.</p></li>
+<li><p><strong>Update Analysis</strong> – <code class="docutils literal notranslate"><span class="pre">POST</span> <span class="pre">/update-analysis</span></code> re-runs every query.
+It is refused with HTTP 409 while a pull is running.</p></li>
+</ul>
+<section id="routes">
+<h2>Routes<a class="headerlink" href="#routes" title="Link to this heading"></a></h2>
+<table class="docutils align-default">
+<thead>
+<tr class="row-odd"><th class="head"><p>Route</p></th>
+<th class="head"><p>Method</p></th>
+<th class="head"><p>Purpose</p></th>
+</tr>
+</thead>
+<tbody>
+<tr class="row-even"><td><p><code class="docutils literal notranslate"><span class="pre">/</span></code></p></td>
+<td><p>GET</p></td>
+<td><p>Render <code class="docutils literal notranslate"><span class="pre">index.html</span></code> with fresh results.</p></td>
+</tr>
+<tr class="row-odd"><td><p><code class="docutils literal notranslate"><span class="pre">/pull-data</span></code></p></td>
+<td><p>POST</p></td>
+<td><p>Start a background data pull (409 if busy).</p></td>
+</tr>
+<tr class="row-even"><td><p><code class="docutils literal notranslate"><span class="pre">/pull-data/status</span></code></p></td>
+<td><p>GET</p></td>
+<td><p>JSON snapshot of the pull state.</p></td>
+</tr>
+<tr class="row-odd"><td><p><code class="docutils literal notranslate"><span class="pre">/update-analysis</span></code></p></td>
+<td><p>POST</p></td>
+<td><p>Re-query the analysis (409 if pulling).</p></td>
+</tr>
+</tbody>
+</table>
+<p>Environment variables: <code class="docutils literal notranslate"><span class="pre">FLASK_SECRET_KEY</span></code> plus whatever <code class="docutils literal notranslate"><span class="pre">models</span></code>
+uses to connect to the database (e.g. <code class="docutils literal notranslate"><span class="pre">DATABASE_URL</span></code>).</p>
+</section>
+<section id="http-routes">
+<h2>HTTP routes<a class="headerlink" href="#http-routes" title="Link to this heading"></a></h2>
+<dl class="py function">
+<dt class="sig sig-object py" id="app.analysis">
+<span class="sig-prename descclassname"><span class="pre">app.</span></span><span class="sig-name descname"><span class="pre">analysis</span></span><span class="sig-paren">(</span><span class="sig-paren">)</span><a class="reference internal" href="../_modules/app.html#analysis"><span class="viewcode-link"><span class="pre">[source]</span></span></a><a class="headerlink" href="#app.analysis" title="Link to this definition"></a></dt>
+<dd><p><code class="docutils literal notranslate"><span class="pre">GET</span> <span class="pre">/</span></code> – render the analysis page.</p>
+<dl class="field-list simple">
+<dt class="field-odd">Returns<span class="colon">:</span></dt>
+<dd class="field-odd"><p>Rendered <code class="docutils literal notranslate"><span class="pre">index.html</span></code> with fresh query results and the
+current pull status.</p>
+</dd>
+<dt class="field-even">Return type<span class="colon">:</span></dt>
+<dd class="field-even"><p>str</p>
+</dd>
+</dl>
+</dd></dl>
+
+<dl class="py function">
+<dt class="sig sig-object py" id="app.pull_data">
+<span class="sig-prename descclassname"><span class="pre">app.</span></span><span class="sig-name descname"><span class="pre">pull_data</span></span><span class="sig-paren">(</span><span class="sig-paren">)</span><a class="reference internal" href="../_modules/app.html#pull_data"><span class="viewcode-link"><span class="pre">[source]</span></span></a><a class="headerlink" href="#app.pull_data" title="Link to this definition"></a></dt>
+<dd><p><code class="docutils literal notranslate"><span class="pre">POST</span> <span class="pre">/pull-data</span></code> – start a background data pull.</p>
+<dl class="field-list simple">
+<dt class="field-odd">Returns<span class="colon">:</span></dt>
+<dd class="field-odd"><p><code class="docutils literal notranslate"><span class="pre">200</span></code> with <code class="docutils literal notranslate"><span class="pre">{&quot;started&quot;:</span> <span class="pre">true,</span> <span class="pre">&quot;message&quot;:</span> <span class="pre">...}</span></code>, or
+<code class="docutils literal notranslate"><span class="pre">409</span></code> with <code class="docutils literal notranslate"><span class="pre">{&quot;error&quot;:</span> <span class="pre">...}</span></code> if a pull is already running.</p>
+</dd>
+<dt class="field-even">Return type<span class="colon">:</span></dt>
+<dd class="field-even"><p>tuple[flask.Response, int]</p>
+</dd>
+</dl>
+</dd></dl>
+
+<dl class="py function">
+<dt class="sig sig-object py" id="app.pull_data_status">
+<span class="sig-prename descclassname"><span class="pre">app.</span></span><span class="sig-name descname"><span class="pre">pull_data_status</span></span><span class="sig-paren">(</span><span class="sig-paren">)</span><a class="reference internal" href="../_modules/app.html#pull_data_status"><span class="viewcode-link"><span class="pre">[source]</span></span></a><a class="headerlink" href="#app.pull_data_status" title="Link to this definition"></a></dt>
+<dd><p><code class="docutils literal notranslate"><span class="pre">GET</span> <span class="pre">/pull-data/status</span></code> – report the current pull state.</p>
+<dl class="field-list simple">
+<dt class="field-odd">Returns<span class="colon">:</span></dt>
+<dd class="field-odd"><p>JSON from <a class="reference internal" href="#app._pull_status_snapshot" title="app._pull_status_snapshot"><code class="xref py py-func docutils literal notranslate"><span class="pre">_pull_status_snapshot()</span></code></a>.</p>
+</dd>
+<dt class="field-even">Return type<span class="colon">:</span></dt>
+<dd class="field-even"><p>flask.Response</p>
+</dd>
+</dl>
+</dd></dl>
+
+<dl class="py function">
+<dt class="sig sig-object py" id="app.update_analysis">
+<span class="sig-prename descclassname"><span class="pre">app.</span></span><span class="sig-name descname"><span class="pre">update_analysis</span></span><span class="sig-paren">(</span><span class="sig-paren">)</span><a class="reference internal" href="../_modules/app.html#update_analysis"><span class="viewcode-link"><span class="pre">[source]</span></span></a><a class="headerlink" href="#app.update_analysis" title="Link to this definition"></a></dt>
+<dd><p><code class="docutils literal notranslate"><span class="pre">POST</span> <span class="pre">/update-analysis</span></code> – re-run the analysis queries.</p>
+<dl class="field-list simple">
+<dt class="field-odd">Returns<span class="colon">:</span></dt>
+<dd class="field-odd"><p><code class="docutils literal notranslate"><span class="pre">200</span></code> with <code class="docutils literal notranslate"><span class="pre">{&quot;updated&quot;:</span> <span class="pre">true,</span> <span class="pre">&quot;generated_at&quot;:</span> <span class="pre">...}</span></code>, or
+<code class="docutils literal notranslate"><span class="pre">409</span></code> with <code class="docutils literal notranslate"><span class="pre">{&quot;error&quot;:</span> <span class="pre">...}</span></code> while a pull is running (no query
+is executed in that case).</p>
+</dd>
+<dt class="field-even">Return type<span class="colon">:</span></dt>
+<dd class="field-even"><p>tuple[flask.Response, int]</p>
+</dd>
+</dl>
+</dd></dl>
+
+</section>
+<section id="pull-data-control">
+<h2>Pull Data control<a class="headerlink" href="#pull-data-control" title="Link to this heading"></a></h2>
+<dl class="py function">
+<dt class="sig sig-object py" id="app.start_pull_data">
+<span class="sig-prename descclassname"><span class="pre">app.</span></span><span class="sig-name descname"><span class="pre">start_pull_data</span></span><span class="sig-paren">(</span><span class="sig-paren">)</span><a class="reference internal" href="../_modules/app.html#start_pull_data"><span class="viewcode-link"><span class="pre">[source]</span></span></a><a class="headerlink" href="#app.start_pull_data" title="Link to this definition"></a></dt>
+<dd><p>Start <code class="docutils literal notranslate"><span class="pre">pull_data.py</span></code> in a background subprocess if none is running.</p>
+<p>A daemon thread running <a class="reference internal" href="#app._watch_pull_process" title="app._watch_pull_process"><code class="xref py py-func docutils literal notranslate"><span class="pre">_watch_pull_process()</span></code></a> tracks completion.</p>
+<dl class="field-list simple">
+<dt class="field-odd">Returns<span class="colon">:</span></dt>
+<dd class="field-odd"><p><code class="docutils literal notranslate"><span class="pre">(started,</span> <span class="pre">message)</span></code> – <code class="docutils literal notranslate"><span class="pre">started</span></code> is <code class="docutils literal notranslate"><span class="pre">False</span></code> if a pull
+was already running or the process could not be launched.</p>
+</dd>
+<dt class="field-even">Return type<span class="colon">:</span></dt>
+<dd class="field-even"><p>tuple[bool, str]</p>
+</dd>
+</dl>
+</dd></dl>
+
+<dl class="py function">
+<dt class="sig sig-object py" id="app._watch_pull_process">
+<span class="sig-prename descclassname"><span class="pre">app.</span></span><span class="sig-name descname"><span class="pre">_watch_pull_process</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">proc</span></span></em><span class="sig-paren">)</span><a class="reference internal" href="../_modules/app.html#_watch_pull_process"><span class="viewcode-link"><span class="pre">[source]</span></span></a><a class="headerlink" href="#app._watch_pull_process" title="Link to this definition"></a></dt>
+<dd><p>Wait for the Pull Data subprocess and record its outcome.</p>
+<p>Runs in a background thread. Streams the subprocess output, parses the
+final <code class="docutils literal notranslate"><span class="pre">PULL_DATA_SUMMARY::{...}</span></code> JSON line if present, and updates the
+shared status dict. Never touches the request/response cycle, so it
+can’t block a page load.</p>
+<dl class="field-list simple">
+<dt class="field-odd">Parameters<span class="colon">:</span></dt>
+<dd class="field-odd"><p><strong>proc</strong> (<em>Popen</em>) – The running <code class="docutils literal notranslate"><span class="pre">pull_data.py</span></code> process (stdout piped, text mode).</p>
+</dd>
+<dt class="field-even">Return type<span class="colon">:</span></dt>
+<dd class="field-even"><p>None</p>
+</dd>
+</dl>
+</dd></dl>
+
+<dl class="py function">
+<dt class="sig sig-object py" id="app._pull_is_running">
+<span class="sig-prename descclassname"><span class="pre">app.</span></span><span class="sig-name descname"><span class="pre">_pull_is_running</span></span><span class="sig-paren">(</span><span class="sig-paren">)</span><a class="reference internal" href="../_modules/app.html#_pull_is_running"><span class="viewcode-link"><span class="pre">[source]</span></span></a><a class="headerlink" href="#app._pull_is_running" title="Link to this definition"></a></dt>
+<dd><p>Return whether a data pull is currently running.</p>
+<p><code class="docutils literal notranslate"><span class="pre">/pull-data</span></code> and <code class="docutils literal notranslate"><span class="pre">/update-analysis</span></code> gate on this so a click can’t
+start a second concurrent pull and an analysis refresh can’t race a
+pull that’s mid-write.</p>
+<dl class="field-list simple">
+<dt class="field-odd">Return type<span class="colon">:</span></dt>
+<dd class="field-odd"><p>bool</p>
+</dd>
+</dl>
+</dd></dl>
+
+<dl class="py function">
+<dt class="sig sig-object py" id="app._pull_status_snapshot">
+<span class="sig-prename descclassname"><span class="pre">app.</span></span><span class="sig-name descname"><span class="pre">_pull_status_snapshot</span></span><span class="sig-paren">(</span><span class="sig-paren">)</span><a class="reference internal" href="../_modules/app.html#_pull_status_snapshot"><span class="viewcode-link"><span class="pre">[source]</span></span></a><a class="headerlink" href="#app._pull_status_snapshot" title="Link to this definition"></a></dt>
+<dd><p>Return a JSON-serialisable, thread-safe copy of the pull state.</p>
+<dl class="field-list simple">
+<dt class="field-odd">Returns<span class="colon">:</span></dt>
+<dd class="field-odd"><p>Dict with <code class="docutils literal notranslate"><span class="pre">running</span></code>, <code class="docutils literal notranslate"><span class="pre">started_at</span></code>, <code class="docutils literal notranslate"><span class="pre">finished_at</span></code>,
+<code class="docutils literal notranslate"><span class="pre">success</span></code> and <code class="docutils literal notranslate"><span class="pre">message</span></code>.</p>
+</dd>
+<dt class="field-even">Return type<span class="colon">:</span></dt>
+<dd class="field-even"><p>dict</p>
+</dd>
+</dl>
+</dd></dl>
+
+</section>
+<section id="analysis-helpers">
+<h2>Analysis helpers<a class="headerlink" href="#analysis-helpers" title="Link to this heading"></a></h2>
+<dl class="py function">
+<dt class="sig sig-object py" id="app._build_analysis_context">
+<span class="sig-prename descclassname"><span class="pre">app.</span></span><span class="sig-name descname"><span class="pre">_build_analysis_context</span></span><span class="sig-paren">(</span><span class="sig-paren">)</span><a class="reference internal" href="../_modules/app.html#_build_analysis_context"><span class="viewcode-link"><span class="pre">[source]</span></span></a><a class="headerlink" href="#app._build_analysis_context" title="Link to this definition"></a></dt>
+<dd><p>Run every analysis query and build the template context.</p>
+<p>Queries go through the SQLAlchemy <code class="docutils literal notranslate"><span class="pre">Applicant</span></code> model via
+<code class="docutils literal notranslate"><span class="pre">orm_queries</span></code>. Always re-queries – this is what makes both the
+initial page load and the Update Analysis button show current results.</p>
+<dl class="field-list simple">
+<dt class="field-odd">Returns<span class="colon">:</span></dt>
+<dd class="field-odd"><p>Dict with keys <code class="docutils literal notranslate"><span class="pre">results</span></code> (list of <code class="docutils literal notranslate"><span class="pre">{number,</span> <span class="pre">question,</span>
+<span class="pre">answer}</span></code>), <code class="docutils literal notranslate"><span class="pre">gpa_buckets</span></code>, <code class="docutils literal notranslate"><span class="pre">term_counts</span></code>, <code class="docutils literal notranslate"><span class="pre">trend</span></code> and
+<code class="docutils literal notranslate"><span class="pre">generated_at</span></code>.</p>
+</dd>
+<dt class="field-even">Return type<span class="colon">:</span></dt>
+<dd class="field-even"><p>dict</p>
+</dd>
+</dl>
+</dd></dl>
+
+<dl class="py function">
+<dt class="sig sig-object py" id="app._fmt_pct">
+<span class="sig-prename descclassname"><span class="pre">app.</span></span><span class="sig-name descname"><span class="pre">_fmt_pct</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">value</span></span></em><span class="sig-paren">)</span><a class="reference internal" href="../_modules/app.html#_fmt_pct"><span class="viewcode-link"><span class="pre">[source]</span></span></a><a class="headerlink" href="#app._fmt_pct" title="Link to this definition"></a></dt>
+<dd><p>Format a percentage with exactly two decimal places.</p>
+<p>Works whether the DB driver returns a <code class="docutils literal notranslate"><span class="pre">Decimal</span></code>, <code class="docutils literal notranslate"><span class="pre">float</span></code> or <code class="docutils literal notranslate"><span class="pre">int</span></code>,
+so the page never shows <code class="docutils literal notranslate"><span class="pre">&quot;42%&quot;</span></code> or <code class="docutils literal notranslate"><span class="pre">&quot;42.5%&quot;</span></code> – only <code class="docutils literal notranslate"><span class="pre">&quot;42.00&quot;</span></code>.
+<code class="docutils literal notranslate"><span class="pre">None</span></code> (e.g. a NULLIF-guarded division by zero) renders as <code class="docutils literal notranslate"><span class="pre">&quot;0.00&quot;</span></code>.</p>
+<dl class="field-list simple">
+<dt class="field-odd">Parameters<span class="colon">:</span></dt>
+<dd class="field-odd"><p><strong>value</strong> – Numeric value or <code class="docutils literal notranslate"><span class="pre">None</span></code>.</p>
+</dd>
+<dt class="field-even">Returns<span class="colon">:</span></dt>
+<dd class="field-even"><p>The formatted number (without a <code class="docutils literal notranslate"><span class="pre">%</span></code> sign).</p>
+</dd>
+<dt class="field-odd">Return type<span class="colon">:</span></dt>
+<dd class="field-odd"><p>str</p>
+</dd>
+</dl>
+<div class="doctest highlight-default notranslate"><div class="highlight"><pre><span></span><span class="gp">&gt;&gt;&gt; </span><span class="n">_fmt_pct</span><span class="p">(</span><span class="mf">42.5</span><span class="p">)</span>
+<span class="go">&#39;42.50&#39;</span>
+<span class="gp">&gt;&gt;&gt; </span><span class="n">_fmt_pct</span><span class="p">(</span><span class="kc">None</span><span class="p">)</span>
+<span class="go">&#39;0.00&#39;</span>
+</pre></div>
+</div>
+</dd></dl>
+
+<dl class="py function">
+<dt class="sig sig-object py" id="app._iso">
+<span class="sig-prename descclassname"><span class="pre">app.</span></span><span class="sig-name descname"><span class="pre">_iso</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">dt</span></span></em><span class="sig-paren">)</span><a class="reference internal" href="../_modules/app.html#_iso"><span class="viewcode-link"><span class="pre">[source]</span></span></a><a class="headerlink" href="#app._iso" title="Link to this definition"></a></dt>
+<dd><p>Return <code class="docutils literal notranslate"><span class="pre">dt</span></code> as an ISO-8601 string, or <code class="docutils literal notranslate"><span class="pre">None</span></code>.</p>
+<dl class="field-list simple">
+<dt class="field-odd">Parameters<span class="colon">:</span></dt>
+<dd class="field-odd"><p><strong>dt</strong> – A <code class="xref py py-class docutils literal notranslate"><span class="pre">datetime.datetime</span></code> or <code class="docutils literal notranslate"><span class="pre">None</span></code>.</p>
+</dd>
+<dt class="field-even">Return type<span class="colon">:</span></dt>
+<dd class="field-even"><p>str or None</p>
+</dd>
+</dl>
+</dd></dl>
+
+</section>
+</section>
+
+
+           </div>
+          </div>
+          <footer><div class="rst-footer-buttons" role="navigation" aria-label="Footer">
+        <a href="query_data.html" class="btn btn-neutral float-left" title="query_data – SQL Analysis" accesskey="p" rel="prev"><span class="fa fa-arrow-circle-left" aria-hidden="true"></span> Previous</a>
+        <a href="pull_data.html" class="btn btn-neutral float-right" title="pull_data – Pull Data Pipeline" accesskey="n" rel="next">Next <span class="fa fa-arrow-circle-right" aria-hidden="true"></span></a>
+    </div>
+
+  <hr/>
+
+  <div role="contentinfo">
+    <p>&#169; Copyright 2026, Shane Battles (sbattl15).</p>
+  </div>
+
+  Built with <a href="https://www.sphinx-doc.org/">Sphinx</a> using a
+    <a href="https://github.com/readthedocs/sphinx_rtd_theme">theme</a>
+    provided by <a href="https://readthedocs.org">Read the Docs</a>.
+   
+
+</footer>
+        </div>
+      </div>
+    </section>
+  </div>
+  <script>
+      jQuery(function () {
+          SphinxRtdTheme.Navigation.enable(true);
+      });
+  </script> 
+
+</body>
+</html>

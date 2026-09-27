@@ -1,0 +1,233 @@
+
+
+<!DOCTYPE html>
+<html class="writer-html5" lang="en" data-content_root="../">
+<head>
+  <meta charset="utf-8" /><meta name="viewport" content="width=device-width, initial-scale=1" />
+
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>query_data – SQL Analysis &mdash; GradCafe Analytics</title>
+      <link rel="stylesheet" type="text/css" href="../_static/pygments.css?v=b86133f3" />
+      <link rel="stylesheet" type="text/css" href="../_static/css/theme.css?v=9edc463e" />
+
+  
+      <script src="../_static/jquery.js?v=5d32c60e"></script>
+      <script src="../_static/_sphinx_javascript_frameworks_compat.js?v=2cd50e6c"></script>
+      <script src="../_static/documentation_options.js?v=f2a433a1"></script>
+      <script src="../_static/doctools.js?v=fd6eb6e6"></script>
+      <script src="../_static/sphinx_highlight.js?v=6ffebe34"></script>
+    <script src="../_static/js/theme.js"></script>
+    <link rel="index" title="Index" href="../genindex.html" />
+    <link rel="search" title="Search" href="../search.html" />
+    <link rel="next" title="app – Flask Application &amp; Routes" href="flask_app.html" />
+    <link rel="prev" title="load_data – Load" href="load_data.html" /> 
+</head>
+
+<body class="wy-body-for-nav"> 
+  <div class="wy-grid-for-nav">
+    <nav data-toggle="wy-nav-shift" class="wy-nav-side">
+      <div class="wy-side-scroll">
+        <div class="wy-side-nav-search" >
+
+          
+          
+          <a href="../index.html" class="icon icon-home">
+            GradCafe Analytics
+          </a>
+<div role="search">
+  <form id="rtd-search-form" class="wy-form" action="../search.html" method="get">
+    <input type="text" name="q" placeholder="Search docs" aria-label="Search docs" />
+    <input type="hidden" name="check_keywords" value="yes" />
+    <input type="hidden" name="area" value="default" />
+  </form>
+</div>
+        </div><div class="wy-menu wy-menu-vertical" data-spy="affix" role="navigation" aria-label="Navigation menu">
+              <p class="caption" role="heading"><span class="caption-text">Guide</span></p>
+<ul>
+<li class="toctree-l1"><a class="reference internal" href="../overview.html">Overview &amp; Setup</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../architecture.html">Architecture</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../testing.html">Testing Guide</a></li>
+</ul>
+<p class="caption" role="heading"><span class="caption-text">API Reference</span></p>
+<ul class="current">
+<li class="toctree-l1 current"><a class="reference internal" href="index.html">API Reference</a><ul class="current">
+<li class="toctree-l2"><a class="reference internal" href="scrape.html">scrape – Extract</a></li>
+<li class="toctree-l2"><a class="reference internal" href="clean.html">clean – Transform</a></li>
+<li class="toctree-l2"><a class="reference internal" href="load_data.html">load_data – Load</a></li>
+<li class="toctree-l2 current"><a class="current reference internal" href="#">query_data – SQL Analysis</a><ul>
+<li class="toctree-l3"><a class="reference internal" href="#query_data.get_connection"><code class="docutils literal notranslate"><span class="pre">get_connection()</span></code></a></li>
+<li class="toctree-l3"><a class="reference internal" href="#query_data.run_queries"><code class="docutils literal notranslate"><span class="pre">run_queries()</span></code></a></li>
+<li class="toctree-l3"><a class="reference internal" href="#query_data.term_trend"><code class="docutils literal notranslate"><span class="pre">term_trend()</span></code></a></li>
+<li class="toctree-l3"><a class="reference internal" href="#query_data.print_results"><code class="docutils literal notranslate"><span class="pre">print_results()</span></code></a></li>
+<li class="toctree-l3"><a class="reference internal" href="#query_data.main"><code class="docutils literal notranslate"><span class="pre">main()</span></code></a></li>
+</ul>
+</li>
+<li class="toctree-l2"><a class="reference internal" href="flask_app.html">app – Flask Application &amp; Routes</a></li>
+<li class="toctree-l2"><a class="reference internal" href="pull_data.html">pull_data – Pull Data Pipeline</a></li>
+</ul>
+</li>
+</ul>
+
+        </div>
+      </div>
+    </nav>
+
+    <section data-toggle="wy-nav-shift" class="wy-nav-content-wrap"><nav class="wy-nav-top" aria-label="Mobile navigation menu" >
+          <i data-toggle="wy-nav-top" class="fa fa-bars"></i>
+          <a href="../index.html">GradCafe Analytics</a>
+      </nav>
+
+      <div class="wy-nav-content">
+        <div class="rst-content">
+          <div role="navigation" aria-label="Page navigation">
+  <ul class="wy-breadcrumbs">
+      <li><a href="../index.html" class="icon icon-home" aria-label="Home"></a></li>
+          <li class="breadcrumb-item"><a href="index.html">API Reference</a></li>
+      <li class="breadcrumb-item active">query_data – SQL Analysis</li>
+      <li class="wy-breadcrumbs-aside">
+            <a href="../_sources/api/query_data.rst.txt" rel="nofollow"> View page source</a>
+      </li>
+  </ul>
+  <hr/>
+</div>
+          <div role="main" class="document" itemscope="itemscope" itemtype="http://schema.org/Article">
+           <div itemprop="articleBody">
+             
+  <section id="query-data-sql-analysis">
+<h1>query_data – SQL Analysis<a class="headerlink" href="#query-data-sql-analysis" title="Link to this heading"></a></h1>
+<p><code class="docutils literal notranslate"><span class="pre">src/query_data.py</span></code></p>
+<p id="module-query_data">Answer the assignment’s analysis questions with raw SQL.</p>
+<p>This module is part of the <strong>database layer</strong>. It connects to PostgreSQL
+with <code class="xref py py-mod docutils literal notranslate"><span class="pre">psycopg</span></code>, runs one query per assignment question against the
+<code class="docutils literal notranslate"><span class="pre">applicants</span></code> table (created by <a class="reference internal" href="load_data.html#module-load_data" title="load_data"><code class="xref py py-mod docutils literal notranslate"><span class="pre">load_data</span></code></a>), and prints the answers.</p>
+<p>Connection settings come from the libpq environment variables
+<code class="docutils literal notranslate"><span class="pre">PGDATABASE</span></code> (default <code class="docutils literal notranslate"><span class="pre">gradcafe_applications</span></code>), <code class="docutils literal notranslate"><span class="pre">PGUSER</span></code> (default
+<code class="docutils literal notranslate"><span class="pre">postgres</span></code>), <code class="docutils literal notranslate"><span class="pre">PGPASSWORD</span></code>, <code class="docutils literal notranslate"><span class="pre">PGHOST</span></code> (default <code class="docutils literal notranslate"><span class="pre">localhost</span></code>) and
+<code class="docutils literal notranslate"><span class="pre">PGPORT</span></code> (default <code class="docutils literal notranslate"><span class="pre">5432</span></code>).</p>
+<p>Example:</p>
+<div class="highlight-default notranslate"><div class="highlight"><pre><span></span><span class="n">python</span> <span class="n">query_data</span><span class="o">.</span><span class="n">py</span>
+</pre></div>
+</div>
+<p>All work happens inside <a class="reference internal" href="#query_data.main" title="query_data.main"><code class="xref py py-func docutils literal notranslate"><span class="pre">main()</span></code></a>, so importing this module (e.g. from
+Sphinx autodoc or pytest) does <strong>not</strong> open a database connection.</p>
+<dl class="py function">
+<dt class="sig sig-object py" id="query_data.get_connection">
+<span class="sig-prename descclassname"><span class="pre">query_data.</span></span><span class="sig-name descname"><span class="pre">get_connection</span></span><span class="sig-paren">(</span><span class="sig-paren">)</span><a class="reference internal" href="../_modules/query_data.html#get_connection"><span class="viewcode-link"><span class="pre">[source]</span></span></a><a class="headerlink" href="#query_data.get_connection" title="Link to this definition"></a></dt>
+<dd><p>Open a PostgreSQL connection from the <code class="docutils literal notranslate"><span class="pre">PG*</span></code> environment variables.</p>
+<dl class="field-list simple">
+<dt class="field-odd">Returns<span class="colon">:</span></dt>
+<dd class="field-odd"><p>An open psycopg connection. The caller must close it.</p>
+</dd>
+<dt class="field-even">Return type<span class="colon">:</span></dt>
+<dd class="field-even"><p>psycopg.Connection</p>
+</dd>
+<dt class="field-odd">Raises<span class="colon">:</span></dt>
+<dd class="field-odd"><p><strong>psycopg.OperationalError</strong> – If the database is unreachable.</p>
+</dd>
+</dl>
+</dd></dl>
+
+<dl class="py function">
+<dt class="sig sig-object py" id="query_data.run_queries">
+<span class="sig-prename descclassname"><span class="pre">query_data.</span></span><span class="sig-name descname"><span class="pre">run_queries</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">conn</span></span></em><span class="sig-paren">)</span><a class="reference internal" href="../_modules/query_data.html#run_queries"><span class="viewcode-link"><span class="pre">[source]</span></span></a><a class="headerlink" href="#query_data.run_queries" title="Link to this definition"></a></dt>
+<dd><p>Run every analysis query and return the raw answers.</p>
+<dl class="field-list simple">
+<dt class="field-odd">Parameters<span class="colon">:</span></dt>
+<dd class="field-odd"><p><strong>conn</strong> (<em>psycopg.Connection</em>) – An open psycopg connection.</p>
+</dd>
+<dt class="field-even">Returns<span class="colon">:</span></dt>
+<dd class="field-even"><p>A dict with keys <code class="docutils literal notranslate"><span class="pre">count1</span></code>, <code class="docutils literal notranslate"><span class="pre">percent_international</span></code>,
+<code class="docutils literal notranslate"><span class="pre">avg_gpa</span></code>, <code class="docutils literal notranslate"><span class="pre">avg_gre_q</span></code>, <code class="docutils literal notranslate"><span class="pre">avg_gre_v</span></code>, <code class="docutils literal notranslate"><span class="pre">avg_gre_aw</span></code>,
+<code class="docutils literal notranslate"><span class="pre">avg_gpa_american_fall2026</span></code>, <code class="docutils literal notranslate"><span class="pre">fall_2025_acceptance_pct</span></code>,
+<code class="docutils literal notranslate"><span class="pre">avg_gpa_accepted_fall2026</span></code>, <code class="docutils literal notranslate"><span class="pre">jhu_ms_cs_count</span></code>,
+<code class="docutils literal notranslate"><span class="pre">original_field_count</span></code>, <code class="docutils literal notranslate"><span class="pre">llm_field_count</span></code>,
+<code class="docutils literal notranslate"><span class="pre">gpa_bucket_rows</span></code> (list of <code class="docutils literal notranslate"><span class="pre">(bucket,</span> <span class="pre">total,</span> <span class="pre">pct)</span></code>) and
+<code class="docutils literal notranslate"><span class="pre">term_count_rows</span></code> (list of <code class="docutils literal notranslate"><span class="pre">(term,</span> <span class="pre">count)</span></code>).</p>
+</dd>
+<dt class="field-odd">Return type<span class="colon">:</span></dt>
+<dd class="field-odd"><p>dict</p>
+</dd>
+</dl>
+</dd></dl>
+
+<dl class="py function">
+<dt class="sig sig-object py" id="query_data.term_trend">
+<span class="sig-prename descclassname"><span class="pre">query_data.</span></span><span class="sig-name descname"><span class="pre">term_trend</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">term_count_rows</span></span></em><span class="sig-paren">)</span><a class="reference internal" href="../_modules/query_data.html#term_trend"><span class="viewcode-link"><span class="pre">[source]</span></span></a><a class="headerlink" href="#query_data.term_trend" title="Link to this definition"></a></dt>
+<dd><p>Describe the trend in applicant counts from the first to last term.</p>
+<dl class="field-list simple">
+<dt class="field-odd">Parameters<span class="colon">:</span></dt>
+<dd class="field-odd"><p><strong>term_count_rows</strong> (<em>list</em>) – <code class="docutils literal notranslate"><span class="pre">(term,</span> <span class="pre">count)</span></code> rows in chronological order.</p>
+</dd>
+<dt class="field-even">Returns<span class="colon">:</span></dt>
+<dd class="field-even"><p><code class="docutils literal notranslate"><span class="pre">&quot;Trending</span> <span class="pre">up&quot;</span></code>, <code class="docutils literal notranslate"><span class="pre">&quot;Trending</span> <span class="pre">down&quot;</span></code> or <code class="docutils literal notranslate"><span class="pre">&quot;No</span> <span class="pre">trend&quot;</span></code>.</p>
+</dd>
+<dt class="field-odd">Return type<span class="colon">:</span></dt>
+<dd class="field-odd"><p>str</p>
+</dd>
+</dl>
+<div class="doctest highlight-default notranslate"><div class="highlight"><pre><span></span><span class="gp">&gt;&gt;&gt; </span><span class="n">term_trend</span><span class="p">([(</span><span class="s2">&quot;Fall 2024&quot;</span><span class="p">,</span> <span class="mi">10</span><span class="p">),</span> <span class="p">(</span><span class="s2">&quot;Fall 2025&quot;</span><span class="p">,</span> <span class="mi">20</span><span class="p">)])</span>
+<span class="go">&#39;Trending up&#39;</span>
+</pre></div>
+</div>
+</dd></dl>
+
+<dl class="py function">
+<dt class="sig sig-object py" id="query_data.print_results">
+<span class="sig-prename descclassname"><span class="pre">query_data.</span></span><span class="sig-name descname"><span class="pre">print_results</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">r</span></span></em><span class="sig-paren">)</span><a class="reference internal" href="../_modules/query_data.html#print_results"><span class="viewcode-link"><span class="pre">[source]</span></span></a><a class="headerlink" href="#query_data.print_results" title="Link to this definition"></a></dt>
+<dd><p>Print every question and its answer to stdout.</p>
+<dl class="field-list simple">
+<dt class="field-odd">Parameters<span class="colon">:</span></dt>
+<dd class="field-odd"><p><strong>r</strong> (<em>dict</em>) – The dict returned by <a class="reference internal" href="#query_data.run_queries" title="query_data.run_queries"><code class="xref py py-func docutils literal notranslate"><span class="pre">run_queries()</span></code></a>.</p>
+</dd>
+<dt class="field-even">Return type<span class="colon">:</span></dt>
+<dd class="field-even"><p>None</p>
+</dd>
+</dl>
+</dd></dl>
+
+<dl class="py function">
+<dt class="sig sig-object py" id="query_data.main">
+<span class="sig-prename descclassname"><span class="pre">query_data.</span></span><span class="sig-name descname"><span class="pre">main</span></span><span class="sig-paren">(</span><span class="sig-paren">)</span><a class="reference internal" href="../_modules/query_data.html#main"><span class="viewcode-link"><span class="pre">[source]</span></span></a><a class="headerlink" href="#query_data.main" title="Link to this definition"></a></dt>
+<dd><p>Command-line entry point: connect, run all queries, print answers.</p>
+<p>The connection is always closed, even if a query fails.</p>
+<dl class="field-list simple">
+<dt class="field-odd">Return type<span class="colon">:</span></dt>
+<dd class="field-odd"><p>None</p>
+</dd>
+</dl>
+</dd></dl>
+
+</section>
+
+
+           </div>
+          </div>
+          <footer><div class="rst-footer-buttons" role="navigation" aria-label="Footer">
+        <a href="load_data.html" class="btn btn-neutral float-left" title="load_data – Load" accesskey="p" rel="prev"><span class="fa fa-arrow-circle-left" aria-hidden="true"></span> Previous</a>
+        <a href="flask_app.html" class="btn btn-neutral float-right" title="app – Flask Application &amp; Routes" accesskey="n" rel="next">Next <span class="fa fa-arrow-circle-right" aria-hidden="true"></span></a>
+    </div>
+
+  <hr/>
+
+  <div role="contentinfo">
+    <p>&#169; Copyright 2026, Shane Battles (sbattl15).</p>
+  </div>
+
+  Built with <a href="https://www.sphinx-doc.org/">Sphinx</a> using a
+    <a href="https://github.com/readthedocs/sphinx_rtd_theme">theme</a>
+    provided by <a href="https://readthedocs.org">Read the Docs</a>.
+   
+
+</footer>
+        </div>
+      </div>
+    </section>
+  </div>
+  <script>
+      jQuery(function () {
+          SphinxRtdTheme.Navigation.enable(true);
+      });
+  </script> 
+
+</body>
+</html>

@@ -1,0 +1,496 @@
+
+
+<!DOCTYPE html>
+<html class="writer-html5" lang="en" data-content_root="../">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>load_data &mdash; GradCafe Analytics</title>
+      <link rel="stylesheet" type="text/css" href="../_static/pygments.css?v=b86133f3" />
+      <link rel="stylesheet" type="text/css" href="../_static/css/theme.css?v=9edc463e" />
+
+  
+      <script src="../_static/jquery.js?v=5d32c60e"></script>
+      <script src="../_static/_sphinx_javascript_frameworks_compat.js?v=2cd50e6c"></script>
+      <script src="../_static/documentation_options.js?v=f2a433a1"></script>
+      <script src="../_static/doctools.js?v=fd6eb6e6"></script>
+      <script src="../_static/sphinx_highlight.js?v=6ffebe34"></script>
+    <script src="../_static/js/theme.js"></script>
+    <link rel="index" title="Index" href="../genindex.html" />
+    <link rel="search" title="Search" href="../search.html" /> 
+</head>
+
+<body class="wy-body-for-nav"> 
+  <div class="wy-grid-for-nav">
+    <nav data-toggle="wy-nav-shift" class="wy-nav-side">
+      <div class="wy-side-scroll">
+        <div class="wy-side-nav-search" >
+
+          
+          
+          <a href="../index.html" class="icon icon-home">
+            GradCafe Analytics
+          </a>
+<div role="search">
+  <form id="rtd-search-form" class="wy-form" action="../search.html" method="get">
+    <input type="text" name="q" placeholder="Search docs" aria-label="Search docs" />
+    <input type="hidden" name="check_keywords" value="yes" />
+    <input type="hidden" name="area" value="default" />
+  </form>
+</div>
+        </div><div class="wy-menu wy-menu-vertical" data-spy="affix" role="navigation" aria-label="Navigation menu">
+              <p class="caption" role="heading"><span class="caption-text">Guide</span></p>
+<ul>
+<li class="toctree-l1"><a class="reference internal" href="../overview.html">Overview &amp; Setup</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../architecture.html">Architecture</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../testing.html">Testing Guide</a></li>
+</ul>
+<p class="caption" role="heading"><span class="caption-text">API Reference</span></p>
+<ul>
+<li class="toctree-l1"><a class="reference internal" href="../api/index.html">API Reference</a></li>
+</ul>
+
+        </div>
+      </div>
+    </nav>
+
+    <section data-toggle="wy-nav-shift" class="wy-nav-content-wrap"><nav class="wy-nav-top" aria-label="Mobile navigation menu" >
+          <i data-toggle="wy-nav-top" class="fa fa-bars"></i>
+          <a href="../index.html">GradCafe Analytics</a>
+      </nav>
+
+      <div class="wy-nav-content">
+        <div class="rst-content">
+          <div role="navigation" aria-label="Page navigation">
+  <ul class="wy-breadcrumbs">
+      <li><a href="../index.html" class="icon icon-home" aria-label="Home"></a></li>
+          <li class="breadcrumb-item"><a href="index.html">Module code</a></li>
+      <li class="breadcrumb-item active">load_data</li>
+      <li class="wy-breadcrumbs-aside">
+      </li>
+  </ul>
+  <hr/>
+</div>
+          <div role="main" class="document" itemscope="itemscope" itemtype="http://schema.org/Article">
+           <div itemprop="articleBody">
+             
+  <h1>Source code for load_data</h1><div class="highlight"><pre>
+<span></span><span class="sd">&quot;&quot;&quot;Load cleaned GradCafe applicant data into PostgreSQL.</span>
+
+<span class="sd">This module is the **database-loading** stage of the ETL pipeline. It reads</span>
+<span class="sd">the LLM-extended JSON produced by the cleaning step, converts free-form</span>
+<span class="sd">string fields (``&quot;Added on Feb 17, 2026&quot;``, ``&quot;GPA 3.85&quot;``, ``&quot;GRE V 160&quot;``)</span>
+<span class="sd">into typed Python values, and bulk-upserts them into the ``applicants``</span>
+<span class="sd">table.</span>
+
+<span class="sd">Connection settings come from the standard libpq environment variables</span>
+<span class="sd">(``PGDATABASE``, ``PGUSER``, ``PGPASSWORD``, ``PGHOST``, ``PGPORT``) and can be</span>
+<span class="sd">overridden on the command line.</span>
+
+<span class="sd">Example::</span>
+
+<span class="sd">    python load_data.py --json-file llm_extend_applicant_data.json --create-db</span>
+<span class="sd">&quot;&quot;&quot;</span>
+
+<span class="kn">from</span><span class="w"> </span><span class="nn">__future__</span><span class="w"> </span><span class="kn">import</span> <span class="n">annotations</span>
+
+<span class="kn">import</span><span class="w"> </span><span class="nn">argparse</span>
+<span class="kn">import</span><span class="w"> </span><span class="nn">json</span>
+<span class="kn">import</span><span class="w"> </span><span class="nn">os</span>
+<span class="kn">import</span><span class="w"> </span><span class="nn">re</span>
+<span class="kn">from</span><span class="w"> </span><span class="nn">datetime</span><span class="w"> </span><span class="kn">import</span> <span class="n">date</span><span class="p">,</span> <span class="n">datetime</span>
+<span class="kn">from</span><span class="w"> </span><span class="nn">pathlib</span><span class="w"> </span><span class="kn">import</span> <span class="n">Path</span>
+<span class="kn">from</span><span class="w"> </span><span class="nn">typing</span><span class="w"> </span><span class="kn">import</span> <span class="n">Any</span><span class="p">,</span> <span class="n">Optional</span>
+
+<span class="kn">import</span><span class="w"> </span><span class="nn">psycopg</span>
+<span class="kn">from</span><span class="w"> </span><span class="nn">psycopg</span><span class="w"> </span><span class="kn">import</span> <span class="n">sql</span>
+
+<span class="c1"># --------------------------------------------------------------------------</span>
+<span class="c1"># Parsing helpers — the source JSON stores several fields as free-form</span>
+<span class="c1"># strings (&quot;Added on Feb 17, 2026&quot;, &quot;GPA 3.85&quot;, &quot;GRE 166&quot;, &quot;GRE V 160&quot;,</span>
+<span class="c1"># &quot;GRE AW 4.5&quot;). We extract typed values out of those strings so the</span>
+<span class="c1"># database columns are actually queryable (date ranges, GPA/GRE</span>
+<span class="c1"># comparisons, etc.) instead of storing everything as opaque text.</span>
+
+<span class="n">DATE_ADDED_RE</span> <span class="o">=</span> <span class="n">re</span><span class="o">.</span><span class="n">compile</span><span class="p">(</span><span class="sa">r</span><span class="s2">&quot;^Added on (?P&lt;date&gt;.+)$&quot;</span><span class="p">)</span>
+<span class="n">STATUS_RE</span> <span class="o">=</span> <span class="n">re</span><span class="o">.</span><span class="n">compile</span><span class="p">(</span>
+    <span class="sa">r</span><span class="s2">&quot;^(?P&lt;type&gt;Accepted|Rejected|Interview|Wait listed) on (?P&lt;date&gt;.+)$&quot;</span>
+<span class="p">)</span>
+<span class="n">GPA_RE</span> <span class="o">=</span> <span class="n">re</span><span class="o">.</span><span class="n">compile</span><span class="p">(</span><span class="sa">r</span><span class="s2">&quot;^GPA\s+(?P&lt;value&gt;[\d.]+)$&quot;</span><span class="p">)</span>
+
+<span class="n">SCORE_RE</span> <span class="o">=</span> <span class="n">re</span><span class="o">.</span><span class="n">compile</span><span class="p">(</span><span class="sa">r</span><span class="s2">&quot;(?P&lt;value&gt;\d+(?:\.\d+)?)\s*$&quot;</span><span class="p">)</span>
+
+<span class="n">DATE_ADDED_FMT</span> <span class="o">=</span> <span class="s2">&quot;%b </span><span class="si">%d</span><span class="s2">, %Y&quot;</span>  <span class="c1"># e.g. &quot;Feb 17, 2026&quot;</span>
+
+
+<div class="viewcode-block" id="parse_date_added">
+<a class="viewcode-back" href="../api/load_data.html#load_data.parse_date_added">[docs]</a>
+<span class="k">def</span><span class="w"> </span><span class="nf">parse_date_added</span><span class="p">(</span><span class="n">value</span><span class="p">:</span> <span class="n">Optional</span><span class="p">[</span><span class="nb">str</span><span class="p">])</span> <span class="o">-&gt;</span> <span class="n">Optional</span><span class="p">[</span><span class="n">date</span><span class="p">]:</span>
+<span class="w">    </span><span class="sd">&quot;&quot;&quot;Parse an ``&quot;Added on &lt;Mon DD, YYYY&gt;&quot;`` string into a :class:`datetime.date`.</span>
+
+<span class="sd">    :param value: Raw ``date_added`` string, e.g. ``&quot;Added on Feb 17, 2026&quot;``.</span>
+<span class="sd">    :type value: str or None</span>
+<span class="sd">    :returns: The parsed date, or ``None`` if the value is empty, does not</span>
+<span class="sd">        match the expected prefix, or has an unparseable date.</span>
+<span class="sd">    :rtype: datetime.date or None</span>
+
+<span class="sd">    &gt;&gt;&gt; parse_date_added(&quot;Added on Feb 17, 2026&quot;)</span>
+<span class="sd">    datetime.date(2026, 2, 17)</span>
+<span class="sd">    &quot;&quot;&quot;</span>
+    <span class="k">if</span> <span class="ow">not</span> <span class="n">value</span><span class="p">:</span>
+        <span class="k">return</span> <span class="kc">None</span>
+    <span class="n">m</span> <span class="o">=</span> <span class="n">DATE_ADDED_RE</span><span class="o">.</span><span class="n">match</span><span class="p">(</span><span class="n">value</span><span class="p">)</span>
+    <span class="k">if</span> <span class="ow">not</span> <span class="n">m</span><span class="p">:</span>
+        <span class="k">return</span> <span class="kc">None</span>
+    <span class="k">try</span><span class="p">:</span>
+        <span class="k">return</span> <span class="n">datetime</span><span class="o">.</span><span class="n">strptime</span><span class="p">(</span><span class="n">m</span><span class="o">.</span><span class="n">group</span><span class="p">(</span><span class="s2">&quot;date&quot;</span><span class="p">),</span> <span class="n">DATE_ADDED_FMT</span><span class="p">)</span><span class="o">.</span><span class="n">date</span><span class="p">()</span>
+    <span class="k">except</span> <span class="ne">ValueError</span><span class="p">:</span>
+        <span class="k">return</span> <span class="kc">None</span></div>
+
+
+
+<div class="viewcode-block" id="parse_gpa">
+<a class="viewcode-back" href="../api/load_data.html#load_data.parse_gpa">[docs]</a>
+<span class="k">def</span><span class="w"> </span><span class="nf">parse_gpa</span><span class="p">(</span><span class="n">value</span><span class="p">:</span> <span class="n">Optional</span><span class="p">[</span><span class="nb">str</span><span class="p">])</span> <span class="o">-&gt;</span> <span class="n">Optional</span><span class="p">[</span><span class="nb">float</span><span class="p">]:</span>
+<span class="w">    </span><span class="sd">&quot;&quot;&quot;Parse a ``&quot;GPA &lt;value&gt;&quot;`` string, e.g. ``&quot;GPA 3.85&quot;``, into a float.</span>
+
+<span class="sd">    Some entries use a weighted/non-4.0 scale (values up to ~4.9 appear in</span>
+<span class="sd">    the data), so this does not clamp or reject those -- it returns whatever</span>
+<span class="sd">    number was reported, keeping the column an honest float rather than</span>
+<span class="sd">    silently dropping legitimate values or tripping a CHECK constraint that</span>
+<span class="sd">    would abort the whole batch insert.</span>
+
+<span class="sd">    :param value: Raw GPA string.</span>
+<span class="sd">    :type value: str or None</span>
+<span class="sd">    :returns: The numeric GPA, or ``None`` if missing or unparseable.</span>
+<span class="sd">    :rtype: float or None</span>
+<span class="sd">    &quot;&quot;&quot;</span>
+    <span class="k">if</span> <span class="ow">not</span> <span class="n">value</span><span class="p">:</span>
+        <span class="k">return</span> <span class="kc">None</span>
+    <span class="n">m</span> <span class="o">=</span> <span class="n">GPA_RE</span><span class="o">.</span><span class="n">match</span><span class="p">(</span><span class="n">value</span><span class="o">.</span><span class="n">strip</span><span class="p">())</span>
+    <span class="k">if</span> <span class="ow">not</span> <span class="n">m</span><span class="p">:</span>
+        <span class="k">return</span> <span class="kc">None</span>
+    <span class="k">try</span><span class="p">:</span>
+        <span class="k">return</span> <span class="nb">float</span><span class="p">(</span><span class="n">m</span><span class="o">.</span><span class="n">group</span><span class="p">(</span><span class="s2">&quot;value&quot;</span><span class="p">))</span>
+    <span class="k">except</span> <span class="ne">ValueError</span><span class="p">:</span>
+        <span class="k">return</span> <span class="kc">None</span></div>
+
+
+
+<div class="viewcode-block" id="parse_score">
+<a class="viewcode-back" href="../api/load_data.html#load_data.parse_score">[docs]</a>
+<span class="k">def</span><span class="w"> </span><span class="nf">parse_score</span><span class="p">(</span><span class="n">value</span><span class="p">:</span> <span class="n">Optional</span><span class="p">[</span><span class="nb">str</span><span class="p">])</span> <span class="o">-&gt;</span> <span class="n">Optional</span><span class="p">[</span><span class="nb">float</span><span class="p">]:</span>
+<span class="w">    </span><span class="sd">&quot;&quot;&quot;Extract a trailing numeric GRE score from a free-form string.</span>
+
+<span class="sd">    Works for Quant, Verbal and Analytical Writing, e.g. ``&quot;GRE 166&quot;``,</span>
+<span class="sd">    ``&quot;GRE V 160&quot;`` or ``&quot;GRE AW 4.5&quot;``. Returns ``None`` (rather than</span>
+<span class="sd">    raising) for missing or unparseable values so a record with no GRE</span>
+<span class="sd">    scores never blocks the load.</span>
+
+<span class="sd">    :param value: Raw score string.</span>
+<span class="sd">    :type value: str or None</span>
+<span class="sd">    :returns: The score as a float, or ``None``.</span>
+<span class="sd">    :rtype: float or None</span>
+<span class="sd">    &quot;&quot;&quot;</span>
+    <span class="k">if</span> <span class="ow">not</span> <span class="n">value</span><span class="p">:</span>
+        <span class="k">return</span> <span class="kc">None</span>
+    <span class="n">m</span> <span class="o">=</span> <span class="n">SCORE_RE</span><span class="o">.</span><span class="n">search</span><span class="p">(</span><span class="n">value</span><span class="o">.</span><span class="n">strip</span><span class="p">())</span>
+    <span class="k">if</span> <span class="ow">not</span> <span class="n">m</span><span class="p">:</span>
+        <span class="k">return</span> <span class="kc">None</span>
+    <span class="k">try</span><span class="p">:</span>
+        <span class="k">return</span> <span class="nb">float</span><span class="p">(</span><span class="n">m</span><span class="o">.</span><span class="n">group</span><span class="p">(</span><span class="s2">&quot;value&quot;</span><span class="p">))</span>
+    <span class="k">except</span> <span class="ne">ValueError</span><span class="p">:</span>
+        <span class="k">return</span> <span class="kc">None</span></div>
+
+
+
+<div class="viewcode-block" id="clean_text">
+<a class="viewcode-back" href="../api/load_data.html#load_data.clean_text">[docs]</a>
+<span class="k">def</span><span class="w"> </span><span class="nf">clean_text</span><span class="p">(</span><span class="n">value</span><span class="p">:</span> <span class="n">Optional</span><span class="p">[</span><span class="nb">str</span><span class="p">])</span> <span class="o">-&gt;</span> <span class="n">Optional</span><span class="p">[</span><span class="nb">str</span><span class="p">]:</span>
+<span class="w">    </span><span class="sd">&quot;&quot;&quot;Strip surrounding whitespace and normalise empty strings to ``None``.</span>
+
+<span class="sd">    :param value: Text to clean.</span>
+<span class="sd">    :type value: str or None</span>
+<span class="sd">    :returns: The stripped string, or ``None`` if it was ``None`` or blank.</span>
+<span class="sd">    :rtype: str or None</span>
+<span class="sd">    &quot;&quot;&quot;</span>
+    <span class="k">if</span> <span class="n">value</span> <span class="ow">is</span> <span class="kc">None</span><span class="p">:</span>
+        <span class="k">return</span> <span class="kc">None</span>
+    <span class="n">value</span> <span class="o">=</span> <span class="n">value</span><span class="o">.</span><span class="n">strip</span><span class="p">()</span>
+    <span class="k">return</span> <span class="n">value</span> <span class="ow">or</span> <span class="kc">None</span></div>
+
+
+
+<div class="viewcode-block" id="load_records">
+<a class="viewcode-back" href="../api/load_data.html#load_data.load_records">[docs]</a>
+<span class="k">def</span><span class="w"> </span><span class="nf">load_records</span><span class="p">(</span><span class="n">path</span><span class="p">:</span> <span class="n">Path</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="nb">list</span><span class="p">[</span><span class="nb">dict</span><span class="p">[</span><span class="nb">str</span><span class="p">,</span> <span class="n">Any</span><span class="p">]]:</span>
+<span class="w">    </span><span class="sd">&quot;&quot;&quot;Read the source JSON file into a list of applicant dictionaries.</span>
+
+<span class="sd">    :param path: Path to a JSON file containing a list of applicant objects.</span>
+<span class="sd">    :type path: pathlib.Path</span>
+<span class="sd">    :returns: The decoded list of records.</span>
+<span class="sd">    :rtype: list[dict[str, Any]]</span>
+<span class="sd">    :raises FileNotFoundError: If ``path`` does not exist.</span>
+<span class="sd">    :raises json.JSONDecodeError: If the file is not valid JSON.</span>
+<span class="sd">    &quot;&quot;&quot;</span>
+    <span class="k">with</span> <span class="nb">open</span><span class="p">(</span><span class="n">path</span><span class="p">,</span> <span class="s2">&quot;r&quot;</span><span class="p">,</span> <span class="n">encoding</span><span class="o">=</span><span class="s2">&quot;utf-8&quot;</span><span class="p">)</span> <span class="k">as</span> <span class="n">f</span><span class="p">:</span>
+        <span class="k">return</span> <span class="n">json</span><span class="o">.</span><span class="n">load</span><span class="p">(</span><span class="n">f</span><span class="p">)</span></div>
+
+
+
+<div class="viewcode-block" id="to_row">
+<a class="viewcode-back" href="../api/load_data.html#load_data.to_row">[docs]</a>
+<span class="k">def</span><span class="w"> </span><span class="nf">to_row</span><span class="p">(</span><span class="n">rec</span><span class="p">:</span> <span class="nb">dict</span><span class="p">[</span><span class="nb">str</span><span class="p">,</span> <span class="n">Any</span><span class="p">])</span> <span class="o">-&gt;</span> <span class="nb">tuple</span><span class="p">:</span>
+<span class="w">    </span><span class="sd">&quot;&quot;&quot;Convert one JSON record into a parameter tuple for :data:`INSERT_SQL`.</span>
+
+<span class="sd">    The tuple order matches the column list in :data:`INSERT_SQL`:</span>
+<span class="sd">    ``program, comments, date_added, url, status, term,</span>
+<span class="sd">    us_or_international, gpa, gre, gre_v, gre_aw, degree,</span>
+<span class="sd">    llm_generated_program, llm_generated_university``.</span>
+
+<span class="sd">    :param rec: A single applicant record from the JSON file.</span>
+<span class="sd">    :type rec: dict[str, Any]</span>
+<span class="sd">    :returns: A 14-element tuple of typed column values.</span>
+<span class="sd">    :rtype: tuple</span>
+<span class="sd">    &quot;&quot;&quot;</span>
+    <span class="k">return</span> <span class="p">(</span>
+        <span class="n">rec</span><span class="o">.</span><span class="n">get</span><span class="p">(</span><span class="s2">&quot;program&quot;</span><span class="p">),</span>
+        <span class="n">clean_text</span><span class="p">(</span><span class="n">rec</span><span class="o">.</span><span class="n">get</span><span class="p">(</span><span class="s2">&quot;comments&quot;</span><span class="p">)),</span>
+        <span class="n">parse_date_added</span><span class="p">(</span><span class="n">rec</span><span class="o">.</span><span class="n">get</span><span class="p">(</span><span class="s2">&quot;date_added&quot;</span><span class="p">)),</span>
+        <span class="n">rec</span><span class="o">.</span><span class="n">get</span><span class="p">(</span><span class="s2">&quot;url&quot;</span><span class="p">),</span>
+        <span class="n">clean_text</span><span class="p">(</span><span class="n">rec</span><span class="o">.</span><span class="n">get</span><span class="p">(</span><span class="s2">&quot;status&quot;</span><span class="p">)),</span>
+        <span class="n">rec</span><span class="o">.</span><span class="n">get</span><span class="p">(</span><span class="s2">&quot;term&quot;</span><span class="p">),</span>
+        <span class="n">rec</span><span class="o">.</span><span class="n">get</span><span class="p">(</span><span class="s2">&quot;US/International&quot;</span><span class="p">),</span>
+        <span class="n">parse_gpa</span><span class="p">(</span><span class="n">rec</span><span class="o">.</span><span class="n">get</span><span class="p">(</span><span class="s2">&quot;GPA&quot;</span><span class="p">)),</span>
+        <span class="n">parse_score</span><span class="p">(</span><span class="n">rec</span><span class="o">.</span><span class="n">get</span><span class="p">(</span><span class="s2">&quot;GRE&quot;</span><span class="p">)),</span>
+        <span class="n">parse_score</span><span class="p">(</span><span class="n">rec</span><span class="o">.</span><span class="n">get</span><span class="p">(</span><span class="s2">&quot;GRE V&quot;</span><span class="p">)),</span>
+        <span class="n">parse_score</span><span class="p">(</span><span class="n">rec</span><span class="o">.</span><span class="n">get</span><span class="p">(</span><span class="s2">&quot;GRE AW&quot;</span><span class="p">)),</span>
+        <span class="n">rec</span><span class="o">.</span><span class="n">get</span><span class="p">(</span><span class="s2">&quot;Degree&quot;</span><span class="p">),</span>
+        <span class="n">rec</span><span class="o">.</span><span class="n">get</span><span class="p">(</span><span class="s2">&quot;llm-generated-program&quot;</span><span class="p">),</span>
+        <span class="n">rec</span><span class="o">.</span><span class="n">get</span><span class="p">(</span><span class="s2">&quot;llm-generated-university&quot;</span><span class="p">),</span>
+    <span class="p">)</span></div>
+
+
+
+<span class="c1"># --------------------------------------------------------------------------</span>
+<span class="c1"># Database creation</span>
+
+<div class="viewcode-block" id="create_database_if_missing">
+<a class="viewcode-back" href="../api/load_data.html#load_data.create_database_if_missing">[docs]</a>
+<span class="k">def</span><span class="w"> </span><span class="nf">create_database_if_missing</span><span class="p">(</span>
+    <span class="n">dbname</span><span class="p">:</span> <span class="nb">str</span><span class="p">,</span> <span class="n">user</span><span class="p">:</span> <span class="n">Optional</span><span class="p">[</span><span class="nb">str</span><span class="p">],</span> <span class="n">password</span><span class="p">:</span> <span class="n">Optional</span><span class="p">[</span><span class="nb">str</span><span class="p">],</span> <span class="n">host</span><span class="p">:</span> <span class="nb">str</span><span class="p">,</span> <span class="n">port</span><span class="p">:</span> <span class="nb">str</span>
+<span class="p">)</span> <span class="o">-&gt;</span> <span class="kc">None</span><span class="p">:</span>
+<span class="w">    </span><span class="sd">&quot;&quot;&quot;Create the target database if it does not already exist.</span>
+
+<span class="sd">    Connects to the ``postgres`` maintenance database with autocommit</span>
+<span class="sd">    enabled (``CREATE DATABASE`` cannot run inside a transaction). The</span>
+<span class="sd">    connecting role needs the ``CREATEDB`` privilege.</span>
+
+<span class="sd">    :param dbname: Name of the database to create.</span>
+<span class="sd">    :param user: PostgreSQL role name.</span>
+<span class="sd">    :param password: Password for ``user`` (``None`` to rely on ``PGPASSWORD``</span>
+<span class="sd">        or ``~/.pgpass``).</span>
+<span class="sd">    :param host: Database host.</span>
+<span class="sd">    :param port: Database port.</span>
+<span class="sd">    :rtype: None</span>
+<span class="sd">    &quot;&quot;&quot;</span>
+    <span class="k">with</span> <span class="n">psycopg</span><span class="o">.</span><span class="n">connect</span><span class="p">(</span>
+        <span class="n">dbname</span><span class="o">=</span><span class="s2">&quot;postgres&quot;</span><span class="p">,</span>
+        <span class="n">user</span><span class="o">=</span><span class="n">user</span><span class="p">,</span>
+        <span class="n">password</span><span class="o">=</span><span class="n">password</span><span class="p">,</span>
+        <span class="n">host</span><span class="o">=</span><span class="n">host</span><span class="p">,</span>
+        <span class="n">port</span><span class="o">=</span><span class="n">port</span><span class="p">,</span>
+        <span class="n">autocommit</span><span class="o">=</span><span class="kc">True</span><span class="p">,</span>  <span class="c1"># required: CREATE DATABASE cannot run in a transaction</span>
+    <span class="p">)</span> <span class="k">as</span> <span class="n">admin_conn</span><span class="p">:</span>
+        <span class="k">with</span> <span class="n">admin_conn</span><span class="o">.</span><span class="n">cursor</span><span class="p">()</span> <span class="k">as</span> <span class="n">cur</span><span class="p">:</span>
+            <span class="n">cur</span><span class="o">.</span><span class="n">execute</span><span class="p">(</span><span class="s2">&quot;SELECT 1 FROM pg_database WHERE datname = </span><span class="si">%s</span><span class="s2">&quot;</span><span class="p">,</span> <span class="p">(</span><span class="n">dbname</span><span class="p">,))</span>
+            <span class="k">if</span> <span class="n">cur</span><span class="o">.</span><span class="n">fetchone</span><span class="p">()</span> <span class="ow">is</span> <span class="kc">None</span><span class="p">:</span>
+                <span class="n">cur</span><span class="o">.</span><span class="n">execute</span><span class="p">(</span><span class="n">sql</span><span class="o">.</span><span class="n">SQL</span><span class="p">(</span><span class="s2">&quot;CREATE DATABASE </span><span class="si">{}</span><span class="s2">&quot;</span><span class="p">)</span><span class="o">.</span><span class="n">format</span><span class="p">(</span><span class="n">sql</span><span class="o">.</span><span class="n">Identifier</span><span class="p">(</span><span class="n">dbname</span><span class="p">)))</span>
+                <span class="nb">print</span><span class="p">(</span><span class="sa">f</span><span class="s2">&quot;Created database &#39;</span><span class="si">{</span><span class="n">dbname</span><span class="si">}</span><span class="s2">&#39;.&quot;</span><span class="p">)</span>
+            <span class="k">else</span><span class="p">:</span>
+                <span class="nb">print</span><span class="p">(</span><span class="sa">f</span><span class="s2">&quot;Database &#39;</span><span class="si">{</span><span class="n">dbname</span><span class="si">}</span><span class="s2">&#39; already exists.&quot;</span><span class="p">)</span></div>
+
+
+
+<span class="c1"># --------------------------------------------------------------------------</span>
+<span class="c1"># Schema</span>
+
+<span class="c1">#: DDL for the ``applicants`` table and its lookup indexes. Idempotent</span>
+<span class="c1">#: (``IF NOT EXISTS``) so it is safe to run on every load.</span>
+<span class="n">CREATE_TABLE_SQL</span> <span class="o">=</span> <span class="s2">&quot;&quot;&quot;</span>
+<span class="s2">CREATE TABLE IF NOT EXISTS applicants (</span>
+<span class="s2">    p_id                        SERIAL PRIMARY KEY,   -- unique identifier</span>
+<span class="s2">    program                     TEXT NOT NULL,        -- University and Department/Program</span>
+<span class="s2">    comments                    TEXT,                 -- applicant comments</span>
+<span class="s2">    date_added                  DATE,                 -- date entry was added</span>
+<span class="s2">    url                         TEXT NOT NULL UNIQUE, -- link to Grad Cafe entry (natural key)</span>
+<span class="s2">    status                      TEXT,                 -- admission status</span>
+<span class="s2">    term                        TEXT,                 -- intended start term</span>
+<span class="s2">    us_or_international         TEXT,                 -- applicant nationality classification</span>
+<span class="s2">    gpa                         REAL,                 -- applicant GPA</span>
+<span class="s2">    gre                         REAL,                 -- GRE Quantitative score</span>
+<span class="s2">    gre_v                       REAL,                 -- GRE Verbal score</span>
+<span class="s2">    gre_aw                      REAL,                 -- GRE Analytical Writing score</span>
+<span class="s2">    degree                      TEXT,                 -- degree type</span>
+<span class="s2">    llm_generated_program       TEXT,                 -- LLM-generated department/program</span>
+<span class="s2">    llm_generated_university    TEXT                  -- LLM-generated university</span>
+<span class="s2">);</span>
+
+<span class="s2">CREATE INDEX IF NOT EXISTS idx_applicants_university  ON applicants (llm_generated_university);</span>
+<span class="s2">CREATE INDEX IF NOT EXISTS idx_applicants_program      ON applicants (llm_generated_program);</span>
+<span class="s2">CREATE INDEX IF NOT EXISTS idx_applicants_term         ON applicants (term);</span>
+<span class="s2">CREATE INDEX IF NOT EXISTS idx_applicants_degree       ON applicants (degree);</span>
+<span class="s2">&quot;&quot;&quot;</span>
+
+<span class="c1">#: Brings a table created by an older version of this script up to date</span>
+<span class="c1">#: (drops a legacy GPA CHECK constraint that rejected weighted GPAs).</span>
+<span class="n">MIGRATE_SQL</span> <span class="o">=</span> <span class="s2">&quot;&quot;&quot;</span>
+<span class="s2">ALTER TABLE applicants DROP CONSTRAINT IF EXISTS applicants_gpa_check;</span>
+<span class="s2">&quot;&quot;&quot;</span>
+
+<span class="c1">#: Parameterised upsert keyed on ``url``. Re-running the loader refreshes</span>
+<span class="c1">#: every column of existing rows instead of failing on the UNIQUE constraint.</span>
+<span class="n">INSERT_SQL</span> <span class="o">=</span> <span class="s2">&quot;&quot;&quot;</span>
+<span class="s2">INSERT INTO applicants (</span>
+<span class="s2">    program, comments, date_added, url, status, term,</span>
+<span class="s2">    us_or_international, gpa, gre, gre_v, gre_aw, degree,</span>
+<span class="s2">    llm_generated_program, llm_generated_university</span>
+<span class="s2">) VALUES (</span>
+<span class="s2">    </span><span class="si">%s</span><span class="s2">, </span><span class="si">%s</span><span class="s2">, </span><span class="si">%s</span><span class="s2">, </span><span class="si">%s</span><span class="s2">, </span><span class="si">%s</span><span class="s2">, </span><span class="si">%s</span><span class="s2">, </span><span class="si">%s</span><span class="s2">, </span><span class="si">%s</span><span class="s2">, </span><span class="si">%s</span><span class="s2">, </span><span class="si">%s</span><span class="s2">, </span><span class="si">%s</span><span class="s2">, </span><span class="si">%s</span><span class="s2">, </span><span class="si">%s</span><span class="s2">, </span><span class="si">%s</span>
+<span class="s2">)</span>
+<span class="s2">ON CONFLICT (url) DO UPDATE SET</span>
+<span class="s2">    program                  = EXCLUDED.program,</span>
+<span class="s2">    comments                 = EXCLUDED.comments,</span>
+<span class="s2">    date_added               = EXCLUDED.date_added,</span>
+<span class="s2">    status                   = EXCLUDED.status,</span>
+<span class="s2">    term                     = EXCLUDED.term,</span>
+<span class="s2">    us_or_international      = EXCLUDED.us_or_international,</span>
+<span class="s2">    gpa                      = EXCLUDED.gpa,</span>
+<span class="s2">    gre                      = EXCLUDED.gre,</span>
+<span class="s2">    gre_v                    = EXCLUDED.gre_v,</span>
+<span class="s2">    gre_aw                   = EXCLUDED.gre_aw,</span>
+<span class="s2">    degree                   = EXCLUDED.degree,</span>
+<span class="s2">    llm_generated_program    = EXCLUDED.llm_generated_program,</span>
+<span class="s2">    llm_generated_university = EXCLUDED.llm_generated_university;</span>
+<span class="s2">&quot;&quot;&quot;</span>
+
+
+<div class="viewcode-block" id="main">
+<a class="viewcode-back" href="../api/load_data.html#load_data.main">[docs]</a>
+<span class="k">def</span><span class="w"> </span><span class="nf">main</span><span class="p">()</span> <span class="o">-&gt;</span> <span class="kc">None</span><span class="p">:</span>
+<span class="w">    </span><span class="sd">&quot;&quot;&quot;Command-line entry point: parse arguments and load the JSON file.</span>
+
+<span class="sd">    Steps:</span>
+
+<span class="sd">    1. Optionally create the database (``--create-db``).</span>
+<span class="sd">    2. Read the JSON file and convert every record with :func:`to_row`.</span>
+<span class="sd">    3. Run :data:`CREATE_TABLE_SQL` and :data:`MIGRATE_SQL`.</span>
+<span class="sd">    4. Bulk-upsert all rows with :data:`INSERT_SQL` in a single transaction,</span>
+<span class="sd">       rolling back on any error.</span>
+
+<span class="sd">    :raises Exception: Re-raises any database error after rolling back.</span>
+<span class="sd">    &quot;&quot;&quot;</span>
+    <span class="n">parser</span> <span class="o">=</span> <span class="n">argparse</span><span class="o">.</span><span class="n">ArgumentParser</span><span class="p">(</span>
+        <span class="n">description</span><span class="o">=</span><span class="s2">&quot;Load thegradcafe.com applicant result JSON into PostgreSQL.&quot;</span>
+    <span class="p">)</span>
+    <span class="n">parser</span><span class="o">.</span><span class="n">add_argument</span><span class="p">(</span>
+        <span class="s2">&quot;--json-file&quot;</span><span class="p">,</span>
+        <span class="nb">type</span><span class="o">=</span><span class="n">Path</span><span class="p">,</span>
+        <span class="n">default</span><span class="o">=</span><span class="n">Path</span><span class="p">(</span><span class="s2">&quot;llm_extend_applicant_data.json&quot;</span><span class="p">),</span>
+        <span class="n">help</span><span class="o">=</span><span class="s2">&quot;Path to the source JSON file (a list of applicant-result objects).&quot;</span><span class="p">,</span>
+    <span class="p">)</span>
+    <span class="n">parser</span><span class="o">.</span><span class="n">add_argument</span><span class="p">(</span><span class="s2">&quot;--dbname&quot;</span><span class="p">,</span> <span class="n">default</span><span class="o">=</span><span class="n">os</span><span class="o">.</span><span class="n">environ</span><span class="o">.</span><span class="n">get</span><span class="p">(</span><span class="s2">&quot;PGDATABASE&quot;</span><span class="p">,</span> <span class="s2">&quot;gradcafe_applications&quot;</span><span class="p">))</span>
+    <span class="n">parser</span><span class="o">.</span><span class="n">add_argument</span><span class="p">(</span><span class="s2">&quot;--user&quot;</span><span class="p">,</span> <span class="n">default</span><span class="o">=</span><span class="n">os</span><span class="o">.</span><span class="n">environ</span><span class="o">.</span><span class="n">get</span><span class="p">(</span><span class="s2">&quot;PGUSER&quot;</span><span class="p">,</span> <span class="s2">&quot;postgres&quot;</span><span class="p">))</span>
+    <span class="n">parser</span><span class="o">.</span><span class="n">add_argument</span><span class="p">(</span>
+        <span class="s2">&quot;--password&quot;</span><span class="p">,</span>
+        <span class="n">default</span><span class="o">=</span><span class="n">os</span><span class="o">.</span><span class="n">environ</span><span class="o">.</span><span class="n">get</span><span class="p">(</span><span class="s2">&quot;PGPASSWORD&quot;</span><span class="p">),</span>
+        <span class="n">help</span><span class="o">=</span><span class="s2">&quot;Postgres password. Prefer setting the PGPASSWORD environment &quot;</span>
+        <span class="s2">&quot;variable (or a ~/.pgpass file) over passing this flag or hardcoding &quot;</span>
+        <span class="s2">&quot;it, so the password never ends up in shell history or source code.&quot;</span><span class="p">,</span>
+    <span class="p">)</span>
+    <span class="n">parser</span><span class="o">.</span><span class="n">add_argument</span><span class="p">(</span><span class="s2">&quot;--host&quot;</span><span class="p">,</span> <span class="n">default</span><span class="o">=</span><span class="n">os</span><span class="o">.</span><span class="n">environ</span><span class="o">.</span><span class="n">get</span><span class="p">(</span><span class="s2">&quot;PGHOST&quot;</span><span class="p">,</span> <span class="s2">&quot;localhost&quot;</span><span class="p">))</span>
+    <span class="n">parser</span><span class="o">.</span><span class="n">add_argument</span><span class="p">(</span><span class="s2">&quot;--port&quot;</span><span class="p">,</span> <span class="n">default</span><span class="o">=</span><span class="n">os</span><span class="o">.</span><span class="n">environ</span><span class="o">.</span><span class="n">get</span><span class="p">(</span><span class="s2">&quot;PGPORT&quot;</span><span class="p">,</span> <span class="s2">&quot;5432&quot;</span><span class="p">))</span>
+    <span class="n">parser</span><span class="o">.</span><span class="n">add_argument</span><span class="p">(</span>
+        <span class="s2">&quot;--create-db&quot;</span><span class="p">,</span>
+        <span class="n">action</span><span class="o">=</span><span class="s2">&quot;store_true&quot;</span><span class="p">,</span>
+        <span class="n">help</span><span class="o">=</span><span class="s2">&quot;Create the target database first if it doesn&#39;t already exist &quot;</span>
+        <span class="s2">&quot;(the connecting role needs the CREATEDB privilege).&quot;</span><span class="p">,</span>
+    <span class="p">)</span>
+    <span class="n">args</span> <span class="o">=</span> <span class="n">parser</span><span class="o">.</span><span class="n">parse_args</span><span class="p">()</span>
+
+    <span class="k">if</span> <span class="n">args</span><span class="o">.</span><span class="n">create_db</span><span class="p">:</span>
+        <span class="n">create_database_if_missing</span><span class="p">(</span><span class="n">args</span><span class="o">.</span><span class="n">dbname</span><span class="p">,</span> <span class="n">args</span><span class="o">.</span><span class="n">user</span><span class="p">,</span> <span class="n">args</span><span class="o">.</span><span class="n">password</span><span class="p">,</span> <span class="n">args</span><span class="o">.</span><span class="n">host</span><span class="p">,</span> <span class="n">args</span><span class="o">.</span><span class="n">port</span><span class="p">)</span>
+
+    <span class="c1"># 1. Load the JSON file into the program (plain Python objects)</span>
+    <span class="n">records</span> <span class="o">=</span> <span class="n">load_records</span><span class="p">(</span><span class="n">args</span><span class="o">.</span><span class="n">json_file</span><span class="p">)</span>
+    <span class="n">rows</span> <span class="o">=</span> <span class="p">[</span><span class="n">to_row</span><span class="p">(</span><span class="n">rec</span><span class="p">)</span> <span class="k">for</span> <span class="n">rec</span> <span class="ow">in</span> <span class="n">records</span><span class="p">]</span>
+
+    <span class="n">conn</span> <span class="o">=</span> <span class="n">psycopg</span><span class="o">.</span><span class="n">connect</span><span class="p">(</span>
+        <span class="n">dbname</span><span class="o">=</span><span class="n">args</span><span class="o">.</span><span class="n">dbname</span><span class="p">,</span>
+        <span class="n">user</span><span class="o">=</span><span class="n">args</span><span class="o">.</span><span class="n">user</span><span class="p">,</span>
+        <span class="n">password</span><span class="o">=</span><span class="n">args</span><span class="o">.</span><span class="n">password</span><span class="p">,</span>
+        <span class="n">host</span><span class="o">=</span><span class="n">args</span><span class="o">.</span><span class="n">host</span><span class="p">,</span>
+        <span class="n">port</span><span class="o">=</span><span class="n">args</span><span class="o">.</span><span class="n">port</span><span class="p">,</span>
+    <span class="p">)</span>
+
+    <span class="k">try</span><span class="p">:</span>
+        <span class="k">with</span> <span class="n">conn</span><span class="o">.</span><span class="n">cursor</span><span class="p">()</span> <span class="k">as</span> <span class="n">cur</span><span class="p">:</span>
+            <span class="c1"># 2. Create table structure (a no-op if it already exists)...</span>
+            <span class="n">cur</span><span class="o">.</span><span class="n">execute</span><span class="p">(</span><span class="n">CREATE_TABLE_SQL</span><span class="p">)</span>
+
+            <span class="c1"># ...then bring an already-existing table&#39;s schema up to date,</span>
+            <span class="c1"># in case it was created by an older version of this script.</span>
+            <span class="n">cur</span><span class="o">.</span><span class="n">execute</span><span class="p">(</span><span class="n">MIGRATE_SQL</span><span class="p">)</span>
+
+            <span class="c1"># 3. Bulk upsert. executemany is plenty fast for ~40k rows;</span>
+            <span class="c1"># ON CONFLICT (url) DO UPDATE makes reruns idempotent (no</span>
+            <span class="c1"># UNIQUE-constraint failures on urls already loaded) while</span>
+            <span class="c1"># still refreshing every column -- including gre/gre_v/gre_aw</span>
+            <span class="c1"># -- for rows that were loaded before the JSON had that data.</span>
+            <span class="n">cur</span><span class="o">.</span><span class="n">executemany</span><span class="p">(</span><span class="n">INSERT_SQL</span><span class="p">,</span> <span class="n">rows</span><span class="p">)</span>
+
+        <span class="n">conn</span><span class="o">.</span><span class="n">commit</span><span class="p">()</span>
+        <span class="nb">print</span><span class="p">(</span><span class="sa">f</span><span class="s2">&quot;Successfully uploaded </span><span class="si">{</span><span class="nb">len</span><span class="p">(</span><span class="n">rows</span><span class="p">)</span><span class="si">}</span><span class="s2"> rows from JSON to PostgreSQL!&quot;</span><span class="p">)</span>
+
+    <span class="k">except</span> <span class="ne">Exception</span> <span class="k">as</span> <span class="n">e</span><span class="p">:</span>
+        <span class="n">conn</span><span class="o">.</span><span class="n">rollback</span><span class="p">()</span>
+        <span class="nb">print</span><span class="p">(</span><span class="sa">f</span><span class="s2">&quot;An error occurred: </span><span class="si">{</span><span class="n">e</span><span class="si">}</span><span class="s2">&quot;</span><span class="p">)</span>
+        <span class="k">raise</span>
+
+    <span class="k">finally</span><span class="p">:</span>
+        <span class="n">conn</span><span class="o">.</span><span class="n">close</span><span class="p">()</span></div>
+
+
+
+<span class="k">if</span> <span class="vm">__name__</span> <span class="o">==</span> <span class="s2">&quot;__main__&quot;</span><span class="p">:</span>
+    <span class="n">main</span><span class="p">()</span>
+</pre></div>
+
+           </div>
+          </div>
+          <footer>
+
+  <hr/>
+
+  <div role="contentinfo">
+    <p>&#169; Copyright 2026, Shane Battles (sbattl15).</p>
+  </div>
+
+  Built with <a href="https://www.sphinx-doc.org/">Sphinx</a> using a
+    <a href="https://github.com/readthedocs/sphinx_rtd_theme">theme</a>
+    provided by <a href="https://readthedocs.org">Read the Docs</a>.
+   
+
+</footer>
+        </div>
+      </div>
+    </section>
+  </div>
+  <script>
+      jQuery(function () {
+          SphinxRtdTheme.Navigation.enable(true);
+      });
+  </script> 
+
+</body>
+</html>

@@ -1,3 +1,22 @@
+"""Scrape applicant results from The GradCafe survey pages.
+
+This module is the **extract** stage of the ETL pipeline. It:
+
+* checks ``robots.txt`` before fetching anything and refuses to scrape if
+  the survey path is disallowed;
+* walks the survey listing one page at a time by following each page's
+  ``Next`` link (GradCafe paginates with an opaque cursor token);
+* parses each result row into a dictionary of *raw* text fields; and
+* writes the de-duplicated entries to a JSON file for :mod:`clean`.
+
+Scraping stops cleanly on HTTP 403/429/503, CAPTCHA/block pages, network
+errors, or when the page limit (:data:`MAX_PAGES`) is reached.
+
+Example::
+
+    python scrape.py --max-pages 50 --delay 3 --output applicant_data.json
+"""
+
 from __future__ import annotations
 
 import argparse
@@ -17,10 +36,14 @@ from bs4 import BeautifulSoup
 # Configuration
 # ============================================================================
 
+#: Root URL of The GradCafe.
 BASE_URL = "https://www.thegradcafe.com"
+#: Path of the first survey listing page.
 SURVEY_PATH = "/survey"
+#: Fully-qualified robots.txt URL.
 ROBOTS_URL = urllib.parse.urljoin(BASE_URL, "/robots.txt")
 
+#: Identifying User-Agent sent with every request (includes a contact address).
 USER_AGENT = (
     "JHU-SoftwareConcepts-Module2-Scraper/1.0 "
     "(+mailto:sbattl15@jh.edu; educational coursework)"
@@ -30,11 +53,15 @@ USER_AGENT = (
 # Per page. The function runs until it hits the desired number
 # Of pages.
 desired_entries = 40000
+#: Hard upper limit on pages fetched per run (``desired_entries // 20``).
 MAX_PAGES = desired_entries // 20
 
+#: Socket timeout for each HTTP request, in seconds.
 REQUEST_TIMEOUT_SECONDS = 15
+#: Politeness delay after each page request, in seconds.
 DEFAULT_DELAY_SECONDS = 3.0
 
+#: How many trailing ``<tr>`` rows to scan for metadata/comments per result.
 MAX_SIBLING_ROW_HOPS = 3
 
 _STOP_STATUS_CODES = {403, 429, 503}
@@ -53,7 +80,12 @@ class ScrapeStoppedError(RuntimeError):
 
 
 def _clean_text(value: object) -> str:
-    """Collapse whitespace/newlines and strip the result."""
+    """Collapse runs of whitespace/newlines to single spaces and strip.
+
+    :param value: Any value; it is converted with :func:`str` first.
+    :returns: Cleaned text, or ``""`` for falsy input.
+    :rtype: str
+    """
     if not value:
         return ""
     return re.sub(r"\s+", " ", str(value)).strip()
@@ -67,6 +99,19 @@ def _clean_text(value: object) -> str:
 def check_robots_txt(
     user_agent: str = USER_AGENT,
 ) -> urllib.robotparser.RobotFileParser:
+    """Download and parse GradCafe's ``robots.txt``.
+
+    The file is fetched manually with :data:`USER_AGENT` (rather than
+    :meth:`RobotFileParser.read`, which uses urllib's default agent and is
+    often blocked). A 401/403 is treated as *disallow all*; any other 4xx as
+    *allow all*, mirroring the standard library's behaviour.
+
+    :param user_agent: User-Agent to send when fetching ``robots.txt``.
+    :returns: A populated robots parser.
+    :rtype: urllib.robotparser.RobotFileParser
+    :raises urllib.error.HTTPError: For 5xx responses.
+    :raises urllib.error.URLError: If the host cannot be reached.
+    """
     parser = urllib.robotparser.RobotFileParser()
     parser.set_url(ROBOTS_URL)
 
@@ -105,12 +150,30 @@ def can_fetch(
     parser: urllib.robotparser.RobotFileParser,
     user_agent: str = USER_AGENT,
 ) -> bool:
+    """Return whether ``robots.txt`` permits fetching ``url``.
+
+    :param url: URL to check.
+    :param parser: Parser returned by :func:`check_robots_txt`.
+    :param user_agent: User-Agent to evaluate the rules for.
+    :returns: ``True`` if fetching is allowed.
+    :rtype: bool
+    """
     return parser.can_fetch(user_agent, url)
 
 
 def confirm_scraping_permitted(
     user_agent: str = USER_AGENT,
 ) -> urllib.robotparser.RobotFileParser:
+    """Verify that scraping the survey page is allowed before starting.
+
+    Prints the result and any ``Crawl-delay`` the site requests.
+
+    :param user_agent: User-Agent the scraper will use.
+    :returns: The robots parser, reused for per-page checks.
+    :rtype: urllib.robotparser.RobotFileParser
+    :raises RuntimeError: If ``robots.txt`` cannot be retrieved.
+    :raises PermissionError: If ``robots.txt`` disallows the survey path.
+    """
     survey_url = urllib.parse.urljoin(BASE_URL, SURVEY_PATH)
 
     print(
@@ -144,6 +207,15 @@ def confirm_scraping_permitted(
 
 
 def _fetch_html(url: str, timeout: int = REQUEST_TIMEOUT_SECONDS) -> str:
+    """Fetch ``url`` and return its decoded HTML body.
+
+    :param url: Page to download.
+    :param timeout: Socket timeout in seconds.
+    :returns: Response body decoded with the declared charset (UTF-8 default).
+    :rtype: str
+    :raises ScrapeStoppedError: On HTTP 403, 429 or 503.
+    :raises urllib.error.HTTPError: On any other HTTP error.
+    """
     request = urllib.request.Request(
         url,
         headers={
@@ -165,6 +237,14 @@ def _fetch_html(url: str, timeout: int = REQUEST_TIMEOUT_SECONDS) -> str:
 
 
 def _looks_blocked(html: str) -> bool:
+    """Heuristically detect a CAPTCHA or bot-block page.
+
+    :param html: Page HTML.
+    :returns: ``True`` if the page contains a known block marker
+        (``captcha``, ``access denied``, ``are you a robot``,
+        ``unusual traffic``).
+    :rtype: bool
+    """
     lowered = html.lower()
     block_markers = (
         "captcha",
@@ -181,13 +261,27 @@ def _looks_blocked(html: str) -> bool:
 
 
 def _row_cell_text(cells: list, index: int) -> str:
+    """Return the cleaned text of ``cells[index]``, or ``""`` if absent.
+
+    :param cells: ``<td>`` elements of a table row.
+    :param index: Zero-based column index.
+    :rtype: str
+    """
     if len(cells) > index:
         return _clean_text(cells[index].get_text(" ", strip=True))
     return ""
 
 
 def _collect_additional_row_text(main_row) -> str:
-    """Grab trailing metadata/comment rows that follow a result row."""
+    """Collect text from the metadata/comment rows that follow a result row.
+
+    Scans up to :data:`MAX_SIBLING_ROW_HOPS` following ``<tr>`` siblings and
+    stops early at the next result row.
+
+    :param main_row: The BeautifulSoup ``<tr>`` holding the result link.
+    :returns: Space-joined text of the trailing rows.
+    :rtype: str
+    """
     additional_text: list[str] = []
     sibling = main_row.find_next_sibling("tr")
     hops = 0
@@ -207,6 +301,16 @@ def _collect_additional_row_text(main_row) -> str:
 
 
 def _parse_page(html: str) -> list[dict]:
+    """Parse one survey listing page into raw entry dictionaries.
+
+    Each entry has the keys ``entry_id``, ``raw_school_text``,
+    ``raw_program_text``, ``raw_added_on_text``, ``raw_decision_text``,
+    ``raw_meta_text``, ``raw_comment_text`` and ``url``.
+
+    :param html: Survey page HTML.
+    :returns: One dictionary per ``/result/<id>`` link found in a table row.
+    :rtype: list[dict]
+    """
     soup = BeautifulSoup(html, "html.parser")
     entries: list[dict] = []
 
@@ -248,13 +352,16 @@ def _parse_page(html: str) -> list[dict]:
 
 
 def _find_next_page_url(html: str, current_url: str) -> Optional[str]:
-    """
-    Find the URL of the next page of results.
+    """Find the URL of the next page of results.
 
-    GradCafe paginates with an opaque ?cursor=... token rather than a
+    GradCafe paginates with an opaque ``?cursor=...`` token rather than a
     plain page number -- the only way to know page N+1's URL is to read
-    it out of the "Next" link in page N's HTML. Returns None once there
-    is no "Next" link (i.e. this is the last page).
+    it out of the ``Next`` link in page N's HTML.
+
+    :param html: Current page HTML.
+    :param current_url: URL of the current page (for resolving relative links).
+    :returns: Absolute URL of the next page, or ``None`` on the last page.
+    :rtype: str or None
     """
     soup = BeautifulSoup(html, "html.parser")
 
@@ -276,6 +383,16 @@ def _fetch_and_parse_page(
     delay_seconds: float,
     robots_parser: urllib.robotparser.RobotFileParser,
 ) -> tuple[list[dict], Optional[str]]:
+    """Fetch, validate and parse a single survey page, then sleep.
+
+    :param url: Page URL.
+    :param delay_seconds: Seconds to sleep after the request.
+    :param robots_parser: Parser used to re-check permission for ``url``.
+    :returns: ``(entries, next_url)``.
+    :rtype: tuple[list[dict], str or None]
+    :raises PermissionError: If ``robots.txt`` disallows ``url``.
+    :raises ScrapeStoppedError: If the server blocks or rate-limits us.
+    """
     if not can_fetch(url, robots_parser, USER_AGENT):
         raise PermissionError(f"robots.txt disallows {url}")
 
@@ -304,18 +421,24 @@ def scrape_data(
     max_pages: Optional[int] = None,
     delay_seconds: float = DEFAULT_DELAY_SECONDS,
 ) -> list[dict]:
-    """
-    Scrape survey pages, following GradCafe's "Next" link from one page
-    to the next.
+    """Scrape survey pages, following GradCafe's ``Next`` link page by page.
 
     GradCafe paginates with an opaque cursor token, not a page number --
     page N+1's URL is only known after page N has been fetched and
-    parsed, so pages are fetched strictly one at a time, in order (they
-    cannot be fetched concurrently or out of sequence).
+    parsed, so pages are fetched strictly one at a time, in order.
 
-    Stops once `max_pages` pages have been fetched, or once a page has
-    no "Next" link (there are no more results). MAX_PAGES is a hard
-    limit: no more than MAX_PAGES pages are ever requested.
+    Stops once ``max_pages`` pages have been fetched, when a page has no
+    ``Next`` link, or on any blocking/network error. :data:`MAX_PAGES` is a
+    hard limit. Entries are de-duplicated by GradCafe result ID.
+
+    :param max_pages: Pages to fetch; ``None`` means :data:`MAX_PAGES`.
+        Values above :data:`MAX_PAGES` are capped.
+    :param delay_seconds: Delay after each request.
+    :returns: Unique raw entries (see :func:`_parse_page` for keys).
+    :rtype: list[dict]
+    :raises ValueError: If ``max_pages < 1`` or ``delay_seconds < 0``.
+    :raises PermissionError: If ``robots.txt`` disallows the survey page.
+    :raises RuntimeError: If ``robots.txt`` cannot be retrieved.
     """
     if max_pages is not None and max_pages < 1:
         raise ValueError("max_pages must be at least 1")
@@ -406,6 +529,11 @@ def scrape_data(
 
 
 def _save_json(entries: list[dict], out_path: str) -> None:
+    """Write ``entries`` to ``out_path`` as pretty-printed UTF-8 JSON.
+
+    :param entries: Entries to write.
+    :param out_path: Destination file path.
+    """
     with open(out_path, "w", encoding="utf-8") as f:
         json.dump(entries, f, indent=2, ensure_ascii=False)
 
@@ -420,6 +548,15 @@ def run(
     delay_seconds: float = DEFAULT_DELAY_SECONDS,
     out_path: str = "applicant_data.json",
 ) -> list[dict]:
+    """Scrape GradCafe and save the raw results to JSON.
+
+    :param max_pages: Passed to :func:`scrape_data`.
+    :param delay_seconds: Passed to :func:`scrape_data`.
+    :param out_path: Output JSON path (default ``applicant_data.json``).
+    :returns: The entries written, or ``[]`` if nothing was scraped (in
+        which case no file is written).
+    :rtype: list[dict]
+    """
     raw_entries = scrape_data(
         max_pages=max_pages,
         delay_seconds=delay_seconds,
@@ -443,6 +580,14 @@ def run(
 
 
 def main() -> int:
+    """Command-line entry point.
+
+    Options: ``--max-pages``, ``--delay``, ``--output``.
+
+    :returns: Process exit code -- ``0`` on success, ``1`` on a robots/
+        runtime error, ``130`` if interrupted with Ctrl-C.
+    :rtype: int
+    """
     parser = argparse.ArgumentParser(
         description="Scrape GradCafe survey data, following its Next-page links."
     )

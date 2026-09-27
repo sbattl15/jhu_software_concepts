@@ -1,0 +1,551 @@
+
+
+<!DOCTYPE html>
+<html class="writer-html5" lang="en" data-content_root="../">
+<head>
+  <meta charset="utf-8" /><meta name="viewport" content="width=device-width, initial-scale=1" />
+
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>scrape – Extract &mdash; GradCafe Analytics</title>
+      <link rel="stylesheet" type="text/css" href="../_static/pygments.css?v=b86133f3" />
+      <link rel="stylesheet" type="text/css" href="../_static/css/theme.css?v=9edc463e" />
+
+  
+      <script src="../_static/jquery.js?v=5d32c60e"></script>
+      <script src="../_static/_sphinx_javascript_frameworks_compat.js?v=2cd50e6c"></script>
+      <script src="../_static/documentation_options.js?v=f2a433a1"></script>
+      <script src="../_static/doctools.js?v=fd6eb6e6"></script>
+      <script src="../_static/sphinx_highlight.js?v=6ffebe34"></script>
+    <script src="../_static/js/theme.js"></script>
+    <link rel="index" title="Index" href="../genindex.html" />
+    <link rel="search" title="Search" href="../search.html" />
+    <link rel="next" title="clean – Transform" href="clean.html" />
+    <link rel="prev" title="API Reference" href="index.html" /> 
+</head>
+
+<body class="wy-body-for-nav"> 
+  <div class="wy-grid-for-nav">
+    <nav data-toggle="wy-nav-shift" class="wy-nav-side">
+      <div class="wy-side-scroll">
+        <div class="wy-side-nav-search" >
+
+          
+          
+          <a href="../index.html" class="icon icon-home">
+            GradCafe Analytics
+          </a>
+<div role="search">
+  <form id="rtd-search-form" class="wy-form" action="../search.html" method="get">
+    <input type="text" name="q" placeholder="Search docs" aria-label="Search docs" />
+    <input type="hidden" name="check_keywords" value="yes" />
+    <input type="hidden" name="area" value="default" />
+  </form>
+</div>
+        </div><div class="wy-menu wy-menu-vertical" data-spy="affix" role="navigation" aria-label="Navigation menu">
+              <p class="caption" role="heading"><span class="caption-text">Guide</span></p>
+<ul>
+<li class="toctree-l1"><a class="reference internal" href="../overview.html">Overview &amp; Setup</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../architecture.html">Architecture</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../testing.html">Testing Guide</a></li>
+</ul>
+<p class="caption" role="heading"><span class="caption-text">API Reference</span></p>
+<ul class="current">
+<li class="toctree-l1 current"><a class="reference internal" href="index.html">API Reference</a><ul class="current">
+<li class="toctree-l2 current"><a class="current reference internal" href="#">scrape – Extract</a><ul>
+<li class="toctree-l3"><a class="reference internal" href="#scrape.BASE_URL"><code class="docutils literal notranslate"><span class="pre">BASE_URL</span></code></a></li>
+<li class="toctree-l3"><a class="reference internal" href="#scrape.SURVEY_PATH"><code class="docutils literal notranslate"><span class="pre">SURVEY_PATH</span></code></a></li>
+<li class="toctree-l3"><a class="reference internal" href="#scrape.ROBOTS_URL"><code class="docutils literal notranslate"><span class="pre">ROBOTS_URL</span></code></a></li>
+<li class="toctree-l3"><a class="reference internal" href="#scrape.USER_AGENT"><code class="docutils literal notranslate"><span class="pre">USER_AGENT</span></code></a></li>
+<li class="toctree-l3"><a class="reference internal" href="#scrape.MAX_PAGES"><code class="docutils literal notranslate"><span class="pre">MAX_PAGES</span></code></a></li>
+<li class="toctree-l3"><a class="reference internal" href="#scrape.REQUEST_TIMEOUT_SECONDS"><code class="docutils literal notranslate"><span class="pre">REQUEST_TIMEOUT_SECONDS</span></code></a></li>
+<li class="toctree-l3"><a class="reference internal" href="#scrape.DEFAULT_DELAY_SECONDS"><code class="docutils literal notranslate"><span class="pre">DEFAULT_DELAY_SECONDS</span></code></a></li>
+<li class="toctree-l3"><a class="reference internal" href="#scrape.MAX_SIBLING_ROW_HOPS"><code class="docutils literal notranslate"><span class="pre">MAX_SIBLING_ROW_HOPS</span></code></a></li>
+<li class="toctree-l3"><a class="reference internal" href="#scrape.ScrapeStoppedError"><code class="docutils literal notranslate"><span class="pre">ScrapeStoppedError</span></code></a></li>
+<li class="toctree-l3"><a class="reference internal" href="#scrape._clean_text"><code class="docutils literal notranslate"><span class="pre">_clean_text()</span></code></a></li>
+<li class="toctree-l3"><a class="reference internal" href="#scrape.check_robots_txt"><code class="docutils literal notranslate"><span class="pre">check_robots_txt()</span></code></a></li>
+<li class="toctree-l3"><a class="reference internal" href="#scrape.can_fetch"><code class="docutils literal notranslate"><span class="pre">can_fetch()</span></code></a></li>
+<li class="toctree-l3"><a class="reference internal" href="#scrape.confirm_scraping_permitted"><code class="docutils literal notranslate"><span class="pre">confirm_scraping_permitted()</span></code></a></li>
+<li class="toctree-l3"><a class="reference internal" href="#scrape._fetch_html"><code class="docutils literal notranslate"><span class="pre">_fetch_html()</span></code></a></li>
+<li class="toctree-l3"><a class="reference internal" href="#scrape._looks_blocked"><code class="docutils literal notranslate"><span class="pre">_looks_blocked()</span></code></a></li>
+<li class="toctree-l3"><a class="reference internal" href="#scrape._row_cell_text"><code class="docutils literal notranslate"><span class="pre">_row_cell_text()</span></code></a></li>
+<li class="toctree-l3"><a class="reference internal" href="#scrape._collect_additional_row_text"><code class="docutils literal notranslate"><span class="pre">_collect_additional_row_text()</span></code></a></li>
+<li class="toctree-l3"><a class="reference internal" href="#scrape._parse_page"><code class="docutils literal notranslate"><span class="pre">_parse_page()</span></code></a></li>
+<li class="toctree-l3"><a class="reference internal" href="#scrape._find_next_page_url"><code class="docutils literal notranslate"><span class="pre">_find_next_page_url()</span></code></a></li>
+<li class="toctree-l3"><a class="reference internal" href="#scrape._fetch_and_parse_page"><code class="docutils literal notranslate"><span class="pre">_fetch_and_parse_page()</span></code></a></li>
+<li class="toctree-l3"><a class="reference internal" href="#scrape.scrape_data"><code class="docutils literal notranslate"><span class="pre">scrape_data()</span></code></a></li>
+<li class="toctree-l3"><a class="reference internal" href="#scrape._save_json"><code class="docutils literal notranslate"><span class="pre">_save_json()</span></code></a></li>
+<li class="toctree-l3"><a class="reference internal" href="#scrape.run"><code class="docutils literal notranslate"><span class="pre">run()</span></code></a></li>
+<li class="toctree-l3"><a class="reference internal" href="#scrape.main"><code class="docutils literal notranslate"><span class="pre">main()</span></code></a></li>
+</ul>
+</li>
+<li class="toctree-l2"><a class="reference internal" href="clean.html">clean – Transform</a></li>
+<li class="toctree-l2"><a class="reference internal" href="load_data.html">load_data – Load</a></li>
+<li class="toctree-l2"><a class="reference internal" href="query_data.html">query_data – SQL Analysis</a></li>
+<li class="toctree-l2"><a class="reference internal" href="flask_app.html">app – Flask Application &amp; Routes</a></li>
+<li class="toctree-l2"><a class="reference internal" href="pull_data.html">pull_data – Pull Data Pipeline</a></li>
+</ul>
+</li>
+</ul>
+
+        </div>
+      </div>
+    </nav>
+
+    <section data-toggle="wy-nav-shift" class="wy-nav-content-wrap"><nav class="wy-nav-top" aria-label="Mobile navigation menu" >
+          <i data-toggle="wy-nav-top" class="fa fa-bars"></i>
+          <a href="../index.html">GradCafe Analytics</a>
+      </nav>
+
+      <div class="wy-nav-content">
+        <div class="rst-content">
+          <div role="navigation" aria-label="Page navigation">
+  <ul class="wy-breadcrumbs">
+      <li><a href="../index.html" class="icon icon-home" aria-label="Home"></a></li>
+          <li class="breadcrumb-item"><a href="index.html">API Reference</a></li>
+      <li class="breadcrumb-item active">scrape – Extract</li>
+      <li class="wy-breadcrumbs-aside">
+            <a href="../_sources/api/scrape.rst.txt" rel="nofollow"> View page source</a>
+      </li>
+  </ul>
+  <hr/>
+</div>
+          <div role="main" class="document" itemscope="itemscope" itemtype="http://schema.org/Article">
+           <div itemprop="articleBody">
+             
+  <section id="scrape-extract">
+<h1>scrape – Extract<a class="headerlink" href="#scrape-extract" title="Link to this heading"></a></h1>
+<p><code class="docutils literal notranslate"><span class="pre">src/flask_website/scrape.py</span></code></p>
+<p id="module-scrape">Scrape applicant results from The GradCafe survey pages.</p>
+<p>This module is the <strong>extract</strong> stage of the ETL pipeline. It:</p>
+<ul class="simple">
+<li><p>checks <code class="docutils literal notranslate"><span class="pre">robots.txt</span></code> before fetching anything and refuses to scrape if
+the survey path is disallowed;</p></li>
+<li><p>walks the survey listing one page at a time by following each page’s
+<code class="docutils literal notranslate"><span class="pre">Next</span></code> link (GradCafe paginates with an opaque cursor token);</p></li>
+<li><p>parses each result row into a dictionary of <em>raw</em> text fields; and</p></li>
+<li><p>writes the de-duplicated entries to a JSON file for <a class="reference internal" href="clean.html#module-clean" title="clean"><code class="xref py py-mod docutils literal notranslate"><span class="pre">clean</span></code></a>.</p></li>
+</ul>
+<p>Scraping stops cleanly on HTTP 403/429/503, CAPTCHA/block pages, network
+errors, or when the page limit (<a class="reference internal" href="#scrape.MAX_PAGES" title="scrape.MAX_PAGES"><code class="xref py py-data docutils literal notranslate"><span class="pre">MAX_PAGES</span></code></a>) is reached.</p>
+<p>Example:</p>
+<div class="highlight-default notranslate"><div class="highlight"><pre><span></span><span class="n">python</span> <span class="n">scrape</span><span class="o">.</span><span class="n">py</span> <span class="o">--</span><span class="nb">max</span><span class="o">-</span><span class="n">pages</span> <span class="mi">50</span> <span class="o">--</span><span class="n">delay</span> <span class="mi">3</span> <span class="o">--</span><span class="n">output</span> <span class="n">applicant_data</span><span class="o">.</span><span class="n">json</span>
+</pre></div>
+</div>
+<dl class="py data">
+<dt class="sig sig-object py" id="scrape.BASE_URL">
+<span class="sig-prename descclassname"><span class="pre">scrape.</span></span><span class="sig-name descname"><span class="pre">BASE_URL</span></span><span class="property"><span class="w"> </span><span class="p"><span class="pre">=</span></span><span class="w"> </span><span class="pre">'https://www.thegradcafe.com'</span></span><a class="headerlink" href="#scrape.BASE_URL" title="Link to this definition"></a></dt>
+<dd><p>Root URL of The GradCafe.</p>
+</dd></dl>
+
+<dl class="py data">
+<dt class="sig sig-object py" id="scrape.SURVEY_PATH">
+<span class="sig-prename descclassname"><span class="pre">scrape.</span></span><span class="sig-name descname"><span class="pre">SURVEY_PATH</span></span><span class="property"><span class="w"> </span><span class="p"><span class="pre">=</span></span><span class="w"> </span><span class="pre">'/survey'</span></span><a class="headerlink" href="#scrape.SURVEY_PATH" title="Link to this definition"></a></dt>
+<dd><p>Path of the first survey listing page.</p>
+</dd></dl>
+
+<dl class="py data">
+<dt class="sig sig-object py" id="scrape.ROBOTS_URL">
+<span class="sig-prename descclassname"><span class="pre">scrape.</span></span><span class="sig-name descname"><span class="pre">ROBOTS_URL</span></span><span class="property"><span class="w"> </span><span class="p"><span class="pre">=</span></span><span class="w"> </span><span class="pre">'https://www.thegradcafe.com/robots.txt'</span></span><a class="headerlink" href="#scrape.ROBOTS_URL" title="Link to this definition"></a></dt>
+<dd><p>Fully-qualified robots.txt URL.</p>
+</dd></dl>
+
+<dl class="py data">
+<dt class="sig sig-object py" id="scrape.USER_AGENT">
+<span class="sig-prename descclassname"><span class="pre">scrape.</span></span><span class="sig-name descname"><span class="pre">USER_AGENT</span></span><span class="property"><span class="w"> </span><span class="p"><span class="pre">=</span></span><span class="w"> </span><span class="pre">'JHU-SoftwareConcepts-Module2-Scraper/1.0</span> <span class="pre">(+mailto:sbattl15&#64;jh.edu;</span> <span class="pre">educational</span> <span class="pre">coursework)'</span></span><a class="headerlink" href="#scrape.USER_AGENT" title="Link to this definition"></a></dt>
+<dd><p>Identifying User-Agent sent with every request (includes a contact address).</p>
+</dd></dl>
+
+<dl class="py data">
+<dt class="sig sig-object py" id="scrape.MAX_PAGES">
+<span class="sig-prename descclassname"><span class="pre">scrape.</span></span><span class="sig-name descname"><span class="pre">MAX_PAGES</span></span><span class="property"><span class="w"> </span><span class="p"><span class="pre">=</span></span><span class="w"> </span><span class="pre">2000</span></span><a class="headerlink" href="#scrape.MAX_PAGES" title="Link to this definition"></a></dt>
+<dd><p>Hard upper limit on pages fetched per run (<code class="docutils literal notranslate"><span class="pre">desired_entries</span> <span class="pre">//</span> <span class="pre">20</span></code>).</p>
+</dd></dl>
+
+<dl class="py data">
+<dt class="sig sig-object py" id="scrape.REQUEST_TIMEOUT_SECONDS">
+<span class="sig-prename descclassname"><span class="pre">scrape.</span></span><span class="sig-name descname"><span class="pre">REQUEST_TIMEOUT_SECONDS</span></span><span class="property"><span class="w"> </span><span class="p"><span class="pre">=</span></span><span class="w"> </span><span class="pre">15</span></span><a class="headerlink" href="#scrape.REQUEST_TIMEOUT_SECONDS" title="Link to this definition"></a></dt>
+<dd><p>Socket timeout for each HTTP request, in seconds.</p>
+</dd></dl>
+
+<dl class="py data">
+<dt class="sig sig-object py" id="scrape.DEFAULT_DELAY_SECONDS">
+<span class="sig-prename descclassname"><span class="pre">scrape.</span></span><span class="sig-name descname"><span class="pre">DEFAULT_DELAY_SECONDS</span></span><span class="property"><span class="w"> </span><span class="p"><span class="pre">=</span></span><span class="w"> </span><span class="pre">3.0</span></span><a class="headerlink" href="#scrape.DEFAULT_DELAY_SECONDS" title="Link to this definition"></a></dt>
+<dd><p>Politeness delay after each page request, in seconds.</p>
+</dd></dl>
+
+<dl class="py data">
+<dt class="sig sig-object py" id="scrape.MAX_SIBLING_ROW_HOPS">
+<span class="sig-prename descclassname"><span class="pre">scrape.</span></span><span class="sig-name descname"><span class="pre">MAX_SIBLING_ROW_HOPS</span></span><span class="property"><span class="w"> </span><span class="p"><span class="pre">=</span></span><span class="w"> </span><span class="pre">3</span></span><a class="headerlink" href="#scrape.MAX_SIBLING_ROW_HOPS" title="Link to this definition"></a></dt>
+<dd><p>How many trailing <code class="docutils literal notranslate"><span class="pre">&lt;tr&gt;</span></code> rows to scan for metadata/comments per result.</p>
+</dd></dl>
+
+<dl class="py exception">
+<dt class="sig sig-object py" id="scrape.ScrapeStoppedError">
+<span class="property"><span class="k"><span class="pre">exception</span></span><span class="w"> </span></span><span class="sig-prename descclassname"><span class="pre">scrape.</span></span><span class="sig-name descname"><span class="pre">ScrapeStoppedError</span></span><a class="reference internal" href="../_modules/scrape.html#ScrapeStoppedError"><span class="viewcode-link"><span class="pre">[source]</span></span></a><a class="headerlink" href="#scrape.ScrapeStoppedError" title="Link to this definition"></a></dt>
+<dd><p>Bases: <code class="xref py py-class docutils literal notranslate"><span class="pre">RuntimeError</span></code></p>
+<p>Raised when scraping must stop because of blocking/rate limiting.</p>
+</dd></dl>
+
+<dl class="py function">
+<dt class="sig sig-object py" id="scrape._clean_text">
+<span class="sig-prename descclassname"><span class="pre">scrape.</span></span><span class="sig-name descname"><span class="pre">_clean_text</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">value</span></span></em><span class="sig-paren">)</span><a class="reference internal" href="../_modules/scrape.html#_clean_text"><span class="viewcode-link"><span class="pre">[source]</span></span></a><a class="headerlink" href="#scrape._clean_text" title="Link to this definition"></a></dt>
+<dd><p>Collapse runs of whitespace/newlines to single spaces and strip.</p>
+<dl class="field-list simple">
+<dt class="field-odd">Parameters<span class="colon">:</span></dt>
+<dd class="field-odd"><p><strong>value</strong> (<em>object</em>) – Any value; it is converted with <code class="xref py py-func docutils literal notranslate"><span class="pre">str()</span></code> first.</p>
+</dd>
+<dt class="field-even">Returns<span class="colon">:</span></dt>
+<dd class="field-even"><p>Cleaned text, or <code class="docutils literal notranslate"><span class="pre">&quot;&quot;</span></code> for falsy input.</p>
+</dd>
+<dt class="field-odd">Return type<span class="colon">:</span></dt>
+<dd class="field-odd"><p>str</p>
+</dd>
+</dl>
+</dd></dl>
+
+<dl class="py function">
+<dt class="sig sig-object py" id="scrape.check_robots_txt">
+<span class="sig-prename descclassname"><span class="pre">scrape.</span></span><span class="sig-name descname"><span class="pre">check_robots_txt</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">user_agent</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">'JHU-SoftwareConcepts-Module2-Scraper/1.0</span> <span class="pre">(+mailto:sbattl15&#64;jh.edu;</span> <span class="pre">educational</span> <span class="pre">coursework)'</span></span></em><span class="sig-paren">)</span><a class="reference internal" href="../_modules/scrape.html#check_robots_txt"><span class="viewcode-link"><span class="pre">[source]</span></span></a><a class="headerlink" href="#scrape.check_robots_txt" title="Link to this definition"></a></dt>
+<dd><p>Download and parse GradCafe’s <code class="docutils literal notranslate"><span class="pre">robots.txt</span></code>.</p>
+<p>The file is fetched manually with <a class="reference internal" href="#scrape.USER_AGENT" title="scrape.USER_AGENT"><code class="xref py py-data docutils literal notranslate"><span class="pre">USER_AGENT</span></code></a> (rather than
+<code class="xref py py-meth docutils literal notranslate"><span class="pre">RobotFileParser.read()</span></code>, which uses urllib’s default agent and is
+often blocked). A 401/403 is treated as <em>disallow all</em>; any other 4xx as
+<em>allow all</em>, mirroring the standard library’s behaviour.</p>
+<dl class="field-list simple">
+<dt class="field-odd">Parameters<span class="colon">:</span></dt>
+<dd class="field-odd"><p><strong>user_agent</strong> (<em>str</em>) – User-Agent to send when fetching <code class="docutils literal notranslate"><span class="pre">robots.txt</span></code>.</p>
+</dd>
+<dt class="field-even">Returns<span class="colon">:</span></dt>
+<dd class="field-even"><p>A populated robots parser.</p>
+</dd>
+<dt class="field-odd">Return type<span class="colon">:</span></dt>
+<dd class="field-odd"><p>urllib.robotparser.RobotFileParser</p>
+</dd>
+<dt class="field-even">Raises<span class="colon">:</span></dt>
+<dd class="field-even"><ul class="simple">
+<li><p><strong>urllib.error.HTTPError</strong> – For 5xx responses.</p></li>
+<li><p><strong>urllib.error.URLError</strong> – If the host cannot be reached.</p></li>
+</ul>
+</dd>
+</dl>
+</dd></dl>
+
+<dl class="py function">
+<dt class="sig sig-object py" id="scrape.can_fetch">
+<span class="sig-prename descclassname"><span class="pre">scrape.</span></span><span class="sig-name descname"><span class="pre">can_fetch</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">url</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">parser</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">user_agent</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">'JHU-SoftwareConcepts-Module2-Scraper/1.0</span> <span class="pre">(+mailto:sbattl15&#64;jh.edu;</span> <span class="pre">educational</span> <span class="pre">coursework)'</span></span></em><span class="sig-paren">)</span><a class="reference internal" href="../_modules/scrape.html#can_fetch"><span class="viewcode-link"><span class="pre">[source]</span></span></a><a class="headerlink" href="#scrape.can_fetch" title="Link to this definition"></a></dt>
+<dd><p>Return whether <code class="docutils literal notranslate"><span class="pre">robots.txt</span></code> permits fetching <code class="docutils literal notranslate"><span class="pre">url</span></code>.</p>
+<dl class="field-list simple">
+<dt class="field-odd">Parameters<span class="colon">:</span></dt>
+<dd class="field-odd"><ul class="simple">
+<li><p><strong>url</strong> (<em>str</em>) – URL to check.</p></li>
+<li><p><strong>parser</strong> (<em>RobotFileParser</em>) – Parser returned by <a class="reference internal" href="#scrape.check_robots_txt" title="scrape.check_robots_txt"><code class="xref py py-func docutils literal notranslate"><span class="pre">check_robots_txt()</span></code></a>.</p></li>
+<li><p><strong>user_agent</strong> (<em>str</em>) – User-Agent to evaluate the rules for.</p></li>
+</ul>
+</dd>
+<dt class="field-even">Returns<span class="colon">:</span></dt>
+<dd class="field-even"><p><code class="docutils literal notranslate"><span class="pre">True</span></code> if fetching is allowed.</p>
+</dd>
+<dt class="field-odd">Return type<span class="colon">:</span></dt>
+<dd class="field-odd"><p>bool</p>
+</dd>
+</dl>
+</dd></dl>
+
+<dl class="py function">
+<dt class="sig sig-object py" id="scrape.confirm_scraping_permitted">
+<span class="sig-prename descclassname"><span class="pre">scrape.</span></span><span class="sig-name descname"><span class="pre">confirm_scraping_permitted</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">user_agent</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">'JHU-SoftwareConcepts-Module2-Scraper/1.0</span> <span class="pre">(+mailto:sbattl15&#64;jh.edu;</span> <span class="pre">educational</span> <span class="pre">coursework)'</span></span></em><span class="sig-paren">)</span><a class="reference internal" href="../_modules/scrape.html#confirm_scraping_permitted"><span class="viewcode-link"><span class="pre">[source]</span></span></a><a class="headerlink" href="#scrape.confirm_scraping_permitted" title="Link to this definition"></a></dt>
+<dd><p>Verify that scraping the survey page is allowed before starting.</p>
+<p>Prints the result and any <code class="docutils literal notranslate"><span class="pre">Crawl-delay</span></code> the site requests.</p>
+<dl class="field-list simple">
+<dt class="field-odd">Parameters<span class="colon">:</span></dt>
+<dd class="field-odd"><p><strong>user_agent</strong> (<em>str</em>) – User-Agent the scraper will use.</p>
+</dd>
+<dt class="field-even">Returns<span class="colon">:</span></dt>
+<dd class="field-even"><p>The robots parser, reused for per-page checks.</p>
+</dd>
+<dt class="field-odd">Return type<span class="colon">:</span></dt>
+<dd class="field-odd"><p>urllib.robotparser.RobotFileParser</p>
+</dd>
+<dt class="field-even">Raises<span class="colon">:</span></dt>
+<dd class="field-even"><ul class="simple">
+<li><p><strong>RuntimeError</strong> – If <code class="docutils literal notranslate"><span class="pre">robots.txt</span></code> cannot be retrieved.</p></li>
+<li><p><strong>PermissionError</strong> – If <code class="docutils literal notranslate"><span class="pre">robots.txt</span></code> disallows the survey path.</p></li>
+</ul>
+</dd>
+</dl>
+</dd></dl>
+
+<dl class="py function">
+<dt class="sig sig-object py" id="scrape._fetch_html">
+<span class="sig-prename descclassname"><span class="pre">scrape.</span></span><span class="sig-name descname"><span class="pre">_fetch_html</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">url</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">timeout</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">15</span></span></em><span class="sig-paren">)</span><a class="reference internal" href="../_modules/scrape.html#_fetch_html"><span class="viewcode-link"><span class="pre">[source]</span></span></a><a class="headerlink" href="#scrape._fetch_html" title="Link to this definition"></a></dt>
+<dd><p>Fetch <code class="docutils literal notranslate"><span class="pre">url</span></code> and return its decoded HTML body.</p>
+<dl class="field-list simple">
+<dt class="field-odd">Parameters<span class="colon">:</span></dt>
+<dd class="field-odd"><ul class="simple">
+<li><p><strong>url</strong> (<em>str</em>) – Page to download.</p></li>
+<li><p><strong>timeout</strong> (<em>int</em>) – Socket timeout in seconds.</p></li>
+</ul>
+</dd>
+<dt class="field-even">Returns<span class="colon">:</span></dt>
+<dd class="field-even"><p>Response body decoded with the declared charset (UTF-8 default).</p>
+</dd>
+<dt class="field-odd">Return type<span class="colon">:</span></dt>
+<dd class="field-odd"><p>str</p>
+</dd>
+<dt class="field-even">Raises<span class="colon">:</span></dt>
+<dd class="field-even"><ul class="simple">
+<li><p><a class="reference internal" href="#scrape.ScrapeStoppedError" title="scrape.ScrapeStoppedError"><strong>ScrapeStoppedError</strong></a> – On HTTP 403, 429 or 503.</p></li>
+<li><p><strong>urllib.error.HTTPError</strong> – On any other HTTP error.</p></li>
+</ul>
+</dd>
+</dl>
+</dd></dl>
+
+<dl class="py function">
+<dt class="sig sig-object py" id="scrape._looks_blocked">
+<span class="sig-prename descclassname"><span class="pre">scrape.</span></span><span class="sig-name descname"><span class="pre">_looks_blocked</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">html</span></span></em><span class="sig-paren">)</span><a class="reference internal" href="../_modules/scrape.html#_looks_blocked"><span class="viewcode-link"><span class="pre">[source]</span></span></a><a class="headerlink" href="#scrape._looks_blocked" title="Link to this definition"></a></dt>
+<dd><p>Heuristically detect a CAPTCHA or bot-block page.</p>
+<dl class="field-list simple">
+<dt class="field-odd">Parameters<span class="colon">:</span></dt>
+<dd class="field-odd"><p><strong>html</strong> (<em>str</em>) – Page HTML.</p>
+</dd>
+<dt class="field-even">Returns<span class="colon">:</span></dt>
+<dd class="field-even"><p><code class="docutils literal notranslate"><span class="pre">True</span></code> if the page contains a known block marker
+(<code class="docutils literal notranslate"><span class="pre">captcha</span></code>, <code class="docutils literal notranslate"><span class="pre">access</span> <span class="pre">denied</span></code>, <code class="docutils literal notranslate"><span class="pre">are</span> <span class="pre">you</span> <span class="pre">a</span> <span class="pre">robot</span></code>,
+<code class="docutils literal notranslate"><span class="pre">unusual</span> <span class="pre">traffic</span></code>).</p>
+</dd>
+<dt class="field-odd">Return type<span class="colon">:</span></dt>
+<dd class="field-odd"><p>bool</p>
+</dd>
+</dl>
+</dd></dl>
+
+<dl class="py function">
+<dt class="sig sig-object py" id="scrape._row_cell_text">
+<span class="sig-prename descclassname"><span class="pre">scrape.</span></span><span class="sig-name descname"><span class="pre">_row_cell_text</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">cells</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">index</span></span></em><span class="sig-paren">)</span><a class="reference internal" href="../_modules/scrape.html#_row_cell_text"><span class="viewcode-link"><span class="pre">[source]</span></span></a><a class="headerlink" href="#scrape._row_cell_text" title="Link to this definition"></a></dt>
+<dd><p>Return the cleaned text of <code class="docutils literal notranslate"><span class="pre">cells[index]</span></code>, or <code class="docutils literal notranslate"><span class="pre">&quot;&quot;</span></code> if absent.</p>
+<dl class="field-list simple">
+<dt class="field-odd">Parameters<span class="colon">:</span></dt>
+<dd class="field-odd"><ul class="simple">
+<li><p><strong>cells</strong> (<em>list</em>) – <code class="docutils literal notranslate"><span class="pre">&lt;td&gt;</span></code> elements of a table row.</p></li>
+<li><p><strong>index</strong> (<em>int</em>) – Zero-based column index.</p></li>
+</ul>
+</dd>
+<dt class="field-even">Return type<span class="colon">:</span></dt>
+<dd class="field-even"><p>str</p>
+</dd>
+</dl>
+</dd></dl>
+
+<dl class="py function">
+<dt class="sig sig-object py" id="scrape._collect_additional_row_text">
+<span class="sig-prename descclassname"><span class="pre">scrape.</span></span><span class="sig-name descname"><span class="pre">_collect_additional_row_text</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">main_row</span></span></em><span class="sig-paren">)</span><a class="reference internal" href="../_modules/scrape.html#_collect_additional_row_text"><span class="viewcode-link"><span class="pre">[source]</span></span></a><a class="headerlink" href="#scrape._collect_additional_row_text" title="Link to this definition"></a></dt>
+<dd><p>Collect text from the metadata/comment rows that follow a result row.</p>
+<p>Scans up to <a class="reference internal" href="#scrape.MAX_SIBLING_ROW_HOPS" title="scrape.MAX_SIBLING_ROW_HOPS"><code class="xref py py-data docutils literal notranslate"><span class="pre">MAX_SIBLING_ROW_HOPS</span></code></a> following <code class="docutils literal notranslate"><span class="pre">&lt;tr&gt;</span></code> siblings and
+stops early at the next result row.</p>
+<dl class="field-list simple">
+<dt class="field-odd">Parameters<span class="colon">:</span></dt>
+<dd class="field-odd"><p><strong>main_row</strong> – The BeautifulSoup <code class="docutils literal notranslate"><span class="pre">&lt;tr&gt;</span></code> holding the result link.</p>
+</dd>
+<dt class="field-even">Returns<span class="colon">:</span></dt>
+<dd class="field-even"><p>Space-joined text of the trailing rows.</p>
+</dd>
+<dt class="field-odd">Return type<span class="colon">:</span></dt>
+<dd class="field-odd"><p>str</p>
+</dd>
+</dl>
+</dd></dl>
+
+<dl class="py function">
+<dt class="sig sig-object py" id="scrape._parse_page">
+<span class="sig-prename descclassname"><span class="pre">scrape.</span></span><span class="sig-name descname"><span class="pre">_parse_page</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">html</span></span></em><span class="sig-paren">)</span><a class="reference internal" href="../_modules/scrape.html#_parse_page"><span class="viewcode-link"><span class="pre">[source]</span></span></a><a class="headerlink" href="#scrape._parse_page" title="Link to this definition"></a></dt>
+<dd><p>Parse one survey listing page into raw entry dictionaries.</p>
+<p>Each entry has the keys <code class="docutils literal notranslate"><span class="pre">entry_id</span></code>, <code class="docutils literal notranslate"><span class="pre">raw_school_text</span></code>,
+<code class="docutils literal notranslate"><span class="pre">raw_program_text</span></code>, <code class="docutils literal notranslate"><span class="pre">raw_added_on_text</span></code>, <code class="docutils literal notranslate"><span class="pre">raw_decision_text</span></code>,
+<code class="docutils literal notranslate"><span class="pre">raw_meta_text</span></code>, <code class="docutils literal notranslate"><span class="pre">raw_comment_text</span></code> and <code class="docutils literal notranslate"><span class="pre">url</span></code>.</p>
+<dl class="field-list simple">
+<dt class="field-odd">Parameters<span class="colon">:</span></dt>
+<dd class="field-odd"><p><strong>html</strong> (<em>str</em>) – Survey page HTML.</p>
+</dd>
+<dt class="field-even">Returns<span class="colon">:</span></dt>
+<dd class="field-even"><p>One dictionary per <code class="docutils literal notranslate"><span class="pre">/result/&lt;id&gt;</span></code> link found in a table row.</p>
+</dd>
+<dt class="field-odd">Return type<span class="colon">:</span></dt>
+<dd class="field-odd"><p>list[dict]</p>
+</dd>
+</dl>
+</dd></dl>
+
+<dl class="py function">
+<dt class="sig sig-object py" id="scrape._find_next_page_url">
+<span class="sig-prename descclassname"><span class="pre">scrape.</span></span><span class="sig-name descname"><span class="pre">_find_next_page_url</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">html</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">current_url</span></span></em><span class="sig-paren">)</span><a class="reference internal" href="../_modules/scrape.html#_find_next_page_url"><span class="viewcode-link"><span class="pre">[source]</span></span></a><a class="headerlink" href="#scrape._find_next_page_url" title="Link to this definition"></a></dt>
+<dd><p>Find the URL of the next page of results.</p>
+<p>GradCafe paginates with an opaque <code class="docutils literal notranslate"><span class="pre">?cursor=...</span></code> token rather than a
+plain page number – the only way to know page N+1’s URL is to read
+it out of the <code class="docutils literal notranslate"><span class="pre">Next</span></code> link in page N’s HTML.</p>
+<dl class="field-list simple">
+<dt class="field-odd">Parameters<span class="colon">:</span></dt>
+<dd class="field-odd"><ul class="simple">
+<li><p><strong>html</strong> (<em>str</em>) – Current page HTML.</p></li>
+<li><p><strong>current_url</strong> (<em>str</em>) – URL of the current page (for resolving relative links).</p></li>
+</ul>
+</dd>
+<dt class="field-even">Returns<span class="colon">:</span></dt>
+<dd class="field-even"><p>Absolute URL of the next page, or <code class="docutils literal notranslate"><span class="pre">None</span></code> on the last page.</p>
+</dd>
+<dt class="field-odd">Return type<span class="colon">:</span></dt>
+<dd class="field-odd"><p>str or None</p>
+</dd>
+</dl>
+</dd></dl>
+
+<dl class="py function">
+<dt class="sig sig-object py" id="scrape._fetch_and_parse_page">
+<span class="sig-prename descclassname"><span class="pre">scrape.</span></span><span class="sig-name descname"><span class="pre">_fetch_and_parse_page</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">url</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">delay_seconds</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">robots_parser</span></span></em><span class="sig-paren">)</span><a class="reference internal" href="../_modules/scrape.html#_fetch_and_parse_page"><span class="viewcode-link"><span class="pre">[source]</span></span></a><a class="headerlink" href="#scrape._fetch_and_parse_page" title="Link to this definition"></a></dt>
+<dd><p>Fetch, validate and parse a single survey page, then sleep.</p>
+<dl class="field-list simple">
+<dt class="field-odd">Parameters<span class="colon">:</span></dt>
+<dd class="field-odd"><ul class="simple">
+<li><p><strong>url</strong> (<em>str</em>) – Page URL.</p></li>
+<li><p><strong>delay_seconds</strong> (<em>float</em>) – Seconds to sleep after the request.</p></li>
+<li><p><strong>robots_parser</strong> (<em>RobotFileParser</em>) – Parser used to re-check permission for <code class="docutils literal notranslate"><span class="pre">url</span></code>.</p></li>
+</ul>
+</dd>
+<dt class="field-even">Returns<span class="colon">:</span></dt>
+<dd class="field-even"><p><code class="docutils literal notranslate"><span class="pre">(entries,</span> <span class="pre">next_url)</span></code>.</p>
+</dd>
+<dt class="field-odd">Return type<span class="colon">:</span></dt>
+<dd class="field-odd"><p>tuple[list[dict], str or None]</p>
+</dd>
+<dt class="field-even">Raises<span class="colon">:</span></dt>
+<dd class="field-even"><ul class="simple">
+<li><p><strong>PermissionError</strong> – If <code class="docutils literal notranslate"><span class="pre">robots.txt</span></code> disallows <code class="docutils literal notranslate"><span class="pre">url</span></code>.</p></li>
+<li><p><a class="reference internal" href="#scrape.ScrapeStoppedError" title="scrape.ScrapeStoppedError"><strong>ScrapeStoppedError</strong></a> – If the server blocks or rate-limits us.</p></li>
+</ul>
+</dd>
+</dl>
+</dd></dl>
+
+<dl class="py function">
+<dt class="sig sig-object py" id="scrape.scrape_data">
+<span class="sig-prename descclassname"><span class="pre">scrape.</span></span><span class="sig-name descname"><span class="pre">scrape_data</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">max_pages</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">None</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">delay_seconds</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">3.0</span></span></em><span class="sig-paren">)</span><a class="reference internal" href="../_modules/scrape.html#scrape_data"><span class="viewcode-link"><span class="pre">[source]</span></span></a><a class="headerlink" href="#scrape.scrape_data" title="Link to this definition"></a></dt>
+<dd><p>Scrape survey pages, following GradCafe’s <code class="docutils literal notranslate"><span class="pre">Next</span></code> link page by page.</p>
+<p>GradCafe paginates with an opaque cursor token, not a page number –
+page N+1’s URL is only known after page N has been fetched and
+parsed, so pages are fetched strictly one at a time, in order.</p>
+<p>Stops once <code class="docutils literal notranslate"><span class="pre">max_pages</span></code> pages have been fetched, when a page has no
+<code class="docutils literal notranslate"><span class="pre">Next</span></code> link, or on any blocking/network error. <a class="reference internal" href="#scrape.MAX_PAGES" title="scrape.MAX_PAGES"><code class="xref py py-data docutils literal notranslate"><span class="pre">MAX_PAGES</span></code></a> is a
+hard limit. Entries are de-duplicated by GradCafe result ID.</p>
+<dl class="field-list simple">
+<dt class="field-odd">Parameters<span class="colon">:</span></dt>
+<dd class="field-odd"><ul class="simple">
+<li><p><strong>max_pages</strong> (<em>int</em><em> | </em><em>None</em>) – Pages to fetch; <code class="docutils literal notranslate"><span class="pre">None</span></code> means <a class="reference internal" href="#scrape.MAX_PAGES" title="scrape.MAX_PAGES"><code class="xref py py-data docutils literal notranslate"><span class="pre">MAX_PAGES</span></code></a>.
+Values above <a class="reference internal" href="#scrape.MAX_PAGES" title="scrape.MAX_PAGES"><code class="xref py py-data docutils literal notranslate"><span class="pre">MAX_PAGES</span></code></a> are capped.</p></li>
+<li><p><strong>delay_seconds</strong> (<em>float</em>) – Delay after each request.</p></li>
+</ul>
+</dd>
+<dt class="field-even">Returns<span class="colon">:</span></dt>
+<dd class="field-even"><p>Unique raw entries (see <a class="reference internal" href="#scrape._parse_page" title="scrape._parse_page"><code class="xref py py-func docutils literal notranslate"><span class="pre">_parse_page()</span></code></a> for keys).</p>
+</dd>
+<dt class="field-odd">Return type<span class="colon">:</span></dt>
+<dd class="field-odd"><p>list[dict]</p>
+</dd>
+<dt class="field-even">Raises<span class="colon">:</span></dt>
+<dd class="field-even"><ul class="simple">
+<li><p><strong>ValueError</strong> – If <code class="docutils literal notranslate"><span class="pre">max_pages</span> <span class="pre">&lt;</span> <span class="pre">1</span></code> or <code class="docutils literal notranslate"><span class="pre">delay_seconds</span> <span class="pre">&lt;</span> <span class="pre">0</span></code>.</p></li>
+<li><p><strong>PermissionError</strong> – If <code class="docutils literal notranslate"><span class="pre">robots.txt</span></code> disallows the survey page.</p></li>
+<li><p><strong>RuntimeError</strong> – If <code class="docutils literal notranslate"><span class="pre">robots.txt</span></code> cannot be retrieved.</p></li>
+</ul>
+</dd>
+</dl>
+</dd></dl>
+
+<dl class="py function">
+<dt class="sig sig-object py" id="scrape._save_json">
+<span class="sig-prename descclassname"><span class="pre">scrape.</span></span><span class="sig-name descname"><span class="pre">_save_json</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">entries</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">out_path</span></span></em><span class="sig-paren">)</span><a class="reference internal" href="../_modules/scrape.html#_save_json"><span class="viewcode-link"><span class="pre">[source]</span></span></a><a class="headerlink" href="#scrape._save_json" title="Link to this definition"></a></dt>
+<dd><p>Write <code class="docutils literal notranslate"><span class="pre">entries</span></code> to <code class="docutils literal notranslate"><span class="pre">out_path</span></code> as pretty-printed UTF-8 JSON.</p>
+<dl class="field-list simple">
+<dt class="field-odd">Parameters<span class="colon">:</span></dt>
+<dd class="field-odd"><ul class="simple">
+<li><p><strong>entries</strong> (<em>list</em><em>[</em><em>dict</em><em>]</em>) – Entries to write.</p></li>
+<li><p><strong>out_path</strong> (<em>str</em>) – Destination file path.</p></li>
+</ul>
+</dd>
+<dt class="field-even">Return type<span class="colon">:</span></dt>
+<dd class="field-even"><p>None</p>
+</dd>
+</dl>
+</dd></dl>
+
+<dl class="py function">
+<dt class="sig sig-object py" id="scrape.run">
+<span class="sig-prename descclassname"><span class="pre">scrape.</span></span><span class="sig-name descname"><span class="pre">run</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">max_pages</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">None</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">delay_seconds</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">3.0</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">out_path</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">'applicant_data.json'</span></span></em><span class="sig-paren">)</span><a class="reference internal" href="../_modules/scrape.html#run"><span class="viewcode-link"><span class="pre">[source]</span></span></a><a class="headerlink" href="#scrape.run" title="Link to this definition"></a></dt>
+<dd><p>Scrape GradCafe and save the raw results to JSON.</p>
+<dl class="field-list simple">
+<dt class="field-odd">Parameters<span class="colon">:</span></dt>
+<dd class="field-odd"><ul class="simple">
+<li><p><strong>max_pages</strong> (<em>int</em><em> | </em><em>None</em>) – Passed to <a class="reference internal" href="#scrape.scrape_data" title="scrape.scrape_data"><code class="xref py py-func docutils literal notranslate"><span class="pre">scrape_data()</span></code></a>.</p></li>
+<li><p><strong>delay_seconds</strong> (<em>float</em>) – Passed to <a class="reference internal" href="#scrape.scrape_data" title="scrape.scrape_data"><code class="xref py py-func docutils literal notranslate"><span class="pre">scrape_data()</span></code></a>.</p></li>
+<li><p><strong>out_path</strong> (<em>str</em>) – Output JSON path (default <code class="docutils literal notranslate"><span class="pre">applicant_data.json</span></code>).</p></li>
+</ul>
+</dd>
+<dt class="field-even">Returns<span class="colon">:</span></dt>
+<dd class="field-even"><p>The entries written, or <code class="docutils literal notranslate"><span class="pre">[]</span></code> if nothing was scraped (in
+which case no file is written).</p>
+</dd>
+<dt class="field-odd">Return type<span class="colon">:</span></dt>
+<dd class="field-odd"><p>list[dict]</p>
+</dd>
+</dl>
+</dd></dl>
+
+<dl class="py function">
+<dt class="sig sig-object py" id="scrape.main">
+<span class="sig-prename descclassname"><span class="pre">scrape.</span></span><span class="sig-name descname"><span class="pre">main</span></span><span class="sig-paren">(</span><span class="sig-paren">)</span><a class="reference internal" href="../_modules/scrape.html#main"><span class="viewcode-link"><span class="pre">[source]</span></span></a><a class="headerlink" href="#scrape.main" title="Link to this definition"></a></dt>
+<dd><p>Command-line entry point.</p>
+<p>Options: <code class="docutils literal notranslate"><span class="pre">--max-pages</span></code>, <code class="docutils literal notranslate"><span class="pre">--delay</span></code>, <code class="docutils literal notranslate"><span class="pre">--output</span></code>.</p>
+<dl class="field-list simple">
+<dt class="field-odd">Returns<span class="colon">:</span></dt>
+<dd class="field-odd"><p>Process exit code – <code class="docutils literal notranslate"><span class="pre">0</span></code> on success, <code class="docutils literal notranslate"><span class="pre">1</span></code> on a robots/
+runtime error, <code class="docutils literal notranslate"><span class="pre">130</span></code> if interrupted with Ctrl-C.</p>
+</dd>
+<dt class="field-even">Return type<span class="colon">:</span></dt>
+<dd class="field-even"><p>int</p>
+</dd>
+</dl>
+</dd></dl>
+
+</section>
+
+
+           </div>
+          </div>
+          <footer><div class="rst-footer-buttons" role="navigation" aria-label="Footer">
+        <a href="index.html" class="btn btn-neutral float-left" title="API Reference" accesskey="p" rel="prev"><span class="fa fa-arrow-circle-left" aria-hidden="true"></span> Previous</a>
+        <a href="clean.html" class="btn btn-neutral float-right" title="clean – Transform" accesskey="n" rel="next">Next <span class="fa fa-arrow-circle-right" aria-hidden="true"></span></a>
+    </div>
+
+  <hr/>
+
+  <div role="contentinfo">
+    <p>&#169; Copyright 2026, Shane Battles (sbattl15).</p>
+  </div>
+
+  Built with <a href="https://www.sphinx-doc.org/">Sphinx</a> using a
+    <a href="https://github.com/readthedocs/sphinx_rtd_theme">theme</a>
+    provided by <a href="https://readthedocs.org">Read the Docs</a>.
+   
+
+</footer>
+        </div>
+      </div>
+    </section>
+  </div>
+  <script>
+      jQuery(function () {
+          SphinxRtdTheme.Navigation.enable(true);
+      });
+  </script> 
+
+</body>
+</html>

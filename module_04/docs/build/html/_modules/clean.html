@@ -1,0 +1,647 @@
+
+
+<!DOCTYPE html>
+<html class="writer-html5" lang="en" data-content_root="../">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>clean &mdash; GradCafe Analytics</title>
+      <link rel="stylesheet" type="text/css" href="../_static/pygments.css?v=b86133f3" />
+      <link rel="stylesheet" type="text/css" href="../_static/css/theme.css?v=9edc463e" />
+
+  
+      <script src="../_static/jquery.js?v=5d32c60e"></script>
+      <script src="../_static/_sphinx_javascript_frameworks_compat.js?v=2cd50e6c"></script>
+      <script src="../_static/documentation_options.js?v=f2a433a1"></script>
+      <script src="../_static/doctools.js?v=fd6eb6e6"></script>
+      <script src="../_static/sphinx_highlight.js?v=6ffebe34"></script>
+    <script src="../_static/js/theme.js"></script>
+    <link rel="index" title="Index" href="../genindex.html" />
+    <link rel="search" title="Search" href="../search.html" /> 
+</head>
+
+<body class="wy-body-for-nav"> 
+  <div class="wy-grid-for-nav">
+    <nav data-toggle="wy-nav-shift" class="wy-nav-side">
+      <div class="wy-side-scroll">
+        <div class="wy-side-nav-search" >
+
+          
+          
+          <a href="../index.html" class="icon icon-home">
+            GradCafe Analytics
+          </a>
+<div role="search">
+  <form id="rtd-search-form" class="wy-form" action="../search.html" method="get">
+    <input type="text" name="q" placeholder="Search docs" aria-label="Search docs" />
+    <input type="hidden" name="check_keywords" value="yes" />
+    <input type="hidden" name="area" value="default" />
+  </form>
+</div>
+        </div><div class="wy-menu wy-menu-vertical" data-spy="affix" role="navigation" aria-label="Navigation menu">
+              <p class="caption" role="heading"><span class="caption-text">Guide</span></p>
+<ul>
+<li class="toctree-l1"><a class="reference internal" href="../overview.html">Overview &amp; Setup</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../architecture.html">Architecture</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../testing.html">Testing Guide</a></li>
+</ul>
+<p class="caption" role="heading"><span class="caption-text">API Reference</span></p>
+<ul>
+<li class="toctree-l1"><a class="reference internal" href="../api/index.html">API Reference</a></li>
+</ul>
+
+        </div>
+      </div>
+    </nav>
+
+    <section data-toggle="wy-nav-shift" class="wy-nav-content-wrap"><nav class="wy-nav-top" aria-label="Mobile navigation menu" >
+          <i data-toggle="wy-nav-top" class="fa fa-bars"></i>
+          <a href="../index.html">GradCafe Analytics</a>
+      </nav>
+
+      <div class="wy-nav-content">
+        <div class="rst-content">
+          <div role="navigation" aria-label="Page navigation">
+  <ul class="wy-breadcrumbs">
+      <li><a href="../index.html" class="icon icon-home" aria-label="Home"></a></li>
+          <li class="breadcrumb-item"><a href="index.html">Module code</a></li>
+      <li class="breadcrumb-item active">clean</li>
+      <li class="wy-breadcrumbs-aside">
+      </li>
+  </ul>
+  <hr/>
+</div>
+          <div role="main" class="document" itemscope="itemscope" itemtype="http://schema.org/Article">
+           <div itemprop="articleBody">
+             
+  <h1>Source code for clean</h1><div class="highlight"><pre>
+<span></span><span class="sd">&quot;&quot;&quot;Clean raw GradCafe scrape output into structured applicant records.</span>
+
+<span class="sd">This module is the **transform** stage of the ETL pipeline. It takes the</span>
+<span class="sd">raw text fields written by :mod:`scrape` and, using regular expressions,</span>
+<span class="sd">splits them into structured fields: program, degree, comments, date added,</span>
+<span class="sd">status, term, applicant nationality, GRE Quant/Verbal/AW and GPA.</span>
+
+<span class="sd">Output field names match what :mod:`load_data` expects (``program``,</span>
+<span class="sd">``comments``, ``date_added``, ``url``, ``status``, ``term``,</span>
+<span class="sd">``US/International``, ``GRE``, ``GRE V``, ``GRE AW``, ``GPA``, ``Degree``).</span>
+<span class="sd">Empty fields are omitted from each record (except ``comments``).</span>
+
+<span class="sd">Example::</span>
+
+<span class="sd">    python clean.py -i applicant_data.json -o cleaned_applicant_data_new.json</span>
+<span class="sd">&quot;&quot;&quot;</span>
+
+<span class="kn">from</span><span class="w"> </span><span class="nn">__future__</span><span class="w"> </span><span class="kn">import</span> <span class="n">annotations</span>
+
+<span class="kn">import</span><span class="w"> </span><span class="nn">argparse</span>
+<span class="kn">import</span><span class="w"> </span><span class="nn">json</span>
+<span class="kn">import</span><span class="w"> </span><span class="nn">re</span>
+<span class="kn">import</span><span class="w"> </span><span class="nn">sys</span>
+<span class="kn">from</span><span class="w"> </span><span class="nn">pathlib</span><span class="w"> </span><span class="kn">import</span> <span class="n">Path</span>
+
+
+<span class="c1"># ============================================================================</span>
+<span class="c1"># Text helpers</span>
+<span class="c1"># ============================================================================</span>
+
+<div class="viewcode-block" id="_clean_text">
+<a class="viewcode-back" href="../api/clean.html#clean._clean_text">[docs]</a>
+<span class="k">def</span><span class="w"> </span><span class="nf">_clean_text</span><span class="p">(</span>
+    <span class="n">value</span><span class="p">:</span> <span class="nb">object</span><span class="p">,</span>
+<span class="p">)</span> <span class="o">-&gt;</span> <span class="nb">str</span><span class="p">:</span>
+<span class="w">    </span><span class="sd">&quot;&quot;&quot;Collapse runs of whitespace to single spaces and strip.</span>
+
+<span class="sd">    :param value: Any value; converted with :func:`str`.</span>
+<span class="sd">    :returns: Cleaned text, or ``&quot;&quot;`` for ``None``.</span>
+<span class="sd">    :rtype: str</span>
+<span class="sd">    &quot;&quot;&quot;</span>
+
+    <span class="k">if</span> <span class="n">value</span> <span class="ow">is</span> <span class="kc">None</span><span class="p">:</span>
+        <span class="k">return</span> <span class="s2">&quot;&quot;</span>
+
+    <span class="k">return</span> <span class="n">re</span><span class="o">.</span><span class="n">sub</span><span class="p">(</span>
+        <span class="sa">r</span><span class="s2">&quot;\s+&quot;</span><span class="p">,</span>
+        <span class="s2">&quot; &quot;</span><span class="p">,</span>
+        <span class="nb">str</span><span class="p">(</span><span class="n">value</span><span class="p">),</span>
+    <span class="p">)</span><span class="o">.</span><span class="n">strip</span><span class="p">()</span></div>
+
+
+
+<span class="c1"># ============================================================================</span>
+<span class="c1"># Structured-field parsing</span>
+<span class="c1"># ============================================================================</span>
+
+<span class="c1"># Degree token that GradCafe appends to the end of the raw program name,</span>
+<span class="c1"># e.g. &quot;Speech Language Pathology Masters&quot; -&gt; program=&quot;Speech Language</span>
+<span class="c1"># Pathology&quot;, degree=&quot;Masters&quot;.</span>
+<span class="n">_DEGREE_SUFFIX_RE</span> <span class="o">=</span> <span class="n">re</span><span class="o">.</span><span class="n">compile</span><span class="p">(</span>
+    <span class="sa">r</span><span class="s2">&quot;\s*\b(Master&#39;?s|Masters|MS|MSc|MA|MBA|MEng|MFA|PsyD|Ph\.?D\.?|&quot;</span>
+    <span class="sa">r</span><span class="s2">&quot;Doctorate|EdD|MPH|JD|Other)\s*$&quot;</span><span class="p">,</span>
+    <span class="n">re</span><span class="o">.</span><span class="n">IGNORECASE</span><span class="p">,</span>
+<span class="p">)</span>
+
+<span class="c1"># The leading structured block that GradCafe prepends to every meta/comment</span>
+<span class="c1"># line, in a fixed order: status (+ date), term, applicant type, GRE scores,</span>
+<span class="c1"># GPA. Anything left over after this prefix is matched is a genuine</span>
+<span class="c1"># free-text comment.</span>
+<span class="n">_META_PREFIX_RE</span> <span class="o">=</span> <span class="n">re</span><span class="o">.</span><span class="n">compile</span><span class="p">(</span>
+    <span class="sa">r</span><span class="s2">&quot;^\s*&quot;</span>
+    <span class="sa">r</span><span class="s2">&quot;(?:Accepted|Rejected|Wait\s*listed|Interview)&quot;</span>
+    <span class="sa">r</span><span class="s2">&quot;(?:\s+on\s+[A-Za-z]{3,9}\s+\d{1,2})?&quot;</span>
+    <span class="sa">r</span><span class="s2">&quot;(?:\s+(?:Spring|Summer|Fall|Winter)\s+\d</span><span class="si">{4}</span><span class="s2">)?&quot;</span>
+    <span class="sa">r</span><span class="s2">&quot;(?:\s+(?:International|American|Other|0))?&quot;</span>
+    <span class="sa">r</span><span class="s2">&quot;(?:\s+GRE\s*[:\-]?\s*\d{2,3})?&quot;</span>
+    <span class="sa">r</span><span class="s2">&quot;(?:\s+GRE\s*V\s*[:\-]?\s*\d{2,3})?&quot;</span>
+    <span class="sa">r</span><span class="s2">&quot;(?:\s+GRE\s*AW\s*[:\-]?\s*\d(?:\.\d{1,2})?)?&quot;</span>
+    <span class="sa">r</span><span class="s2">&quot;(?:\s+GPA\s*[:\-]?\s*[0-4](?:\.\d{1,3})?)?&quot;</span>
+    <span class="sa">r</span><span class="s2">&quot;\s*&quot;</span><span class="p">,</span>
+    <span class="n">re</span><span class="o">.</span><span class="n">IGNORECASE</span><span class="p">,</span>
+<span class="p">)</span>
+
+
+<div class="viewcode-block" id="_parse_term">
+<a class="viewcode-back" href="../api/clean.html#clean._parse_term">[docs]</a>
+<span class="k">def</span><span class="w"> </span><span class="nf">_parse_term</span><span class="p">(</span>
+    <span class="n">text</span><span class="p">:</span> <span class="nb">str</span><span class="p">,</span>
+<span class="p">)</span> <span class="o">-&gt;</span> <span class="nb">str</span><span class="p">:</span>
+<span class="w">    </span><span class="sd">&quot;&quot;&quot;Extract the intended start term, e.g. ``&quot;Fall 2026&quot;``.</span>
+
+<span class="sd">    :param text: Raw metadata text.</span>
+<span class="sd">    :returns: Term with the season capitalised, or ``&quot;&quot;`` if none found.</span>
+<span class="sd">    :rtype: str</span>
+<span class="sd">    &quot;&quot;&quot;</span>
+
+    <span class="n">match</span> <span class="o">=</span> <span class="n">re</span><span class="o">.</span><span class="n">search</span><span class="p">(</span>
+        <span class="sa">r</span><span class="s2">&quot;\b(Spring|Summer|Fall|Winter)\s+(\d</span><span class="si">{4}</span><span class="s2">)\b&quot;</span><span class="p">,</span>
+        <span class="n">text</span><span class="p">,</span>
+        <span class="n">re</span><span class="o">.</span><span class="n">IGNORECASE</span><span class="p">,</span>
+    <span class="p">)</span>
+
+    <span class="k">if</span> <span class="ow">not</span> <span class="n">match</span><span class="p">:</span>
+        <span class="k">return</span> <span class="s2">&quot;&quot;</span>
+
+    <span class="k">return</span> <span class="sa">f</span><span class="s2">&quot;</span><span class="si">{</span><span class="n">match</span><span class="o">.</span><span class="n">group</span><span class="p">(</span><span class="mi">1</span><span class="p">)</span><span class="o">.</span><span class="n">capitalize</span><span class="p">()</span><span class="si">}</span><span class="s2"> </span><span class="si">{</span><span class="n">match</span><span class="o">.</span><span class="n">group</span><span class="p">(</span><span class="mi">2</span><span class="p">)</span><span class="si">}</span><span class="s2">&quot;</span></div>
+
+
+
+<div class="viewcode-block" id="_parse_student_type">
+<a class="viewcode-back" href="../api/clean.html#clean._parse_student_type">[docs]</a>
+<span class="k">def</span><span class="w"> </span><span class="nf">_parse_student_type</span><span class="p">(</span>
+    <span class="n">text</span><span class="p">:</span> <span class="nb">str</span><span class="p">,</span>
+<span class="p">)</span> <span class="o">-&gt;</span> <span class="nb">str</span><span class="p">:</span>
+<span class="w">    </span><span class="sd">&quot;&quot;&quot;Classify the applicant as ``&quot;International&quot;`` or ``&quot;American&quot;``.</span>
+
+<span class="sd">    :param text: Raw metadata text.</span>
+<span class="sd">    :returns: ``&quot;International&quot;``, ``&quot;American&quot;``, or ``&quot;&quot;`` if neither appears.</span>
+<span class="sd">    :rtype: str</span>
+<span class="sd">    &quot;&quot;&quot;</span>
+
+    <span class="k">if</span> <span class="n">re</span><span class="o">.</span><span class="n">search</span><span class="p">(</span><span class="sa">r</span><span class="s2">&quot;\bInternational\b&quot;</span><span class="p">,</span> <span class="n">text</span><span class="p">,</span> <span class="n">re</span><span class="o">.</span><span class="n">IGNORECASE</span><span class="p">):</span>
+        <span class="k">return</span> <span class="s2">&quot;International&quot;</span>
+
+    <span class="k">if</span> <span class="n">re</span><span class="o">.</span><span class="n">search</span><span class="p">(</span><span class="sa">r</span><span class="s2">&quot;\bAmerican\b&quot;</span><span class="p">,</span> <span class="n">text</span><span class="p">,</span> <span class="n">re</span><span class="o">.</span><span class="n">IGNORECASE</span><span class="p">):</span>
+        <span class="k">return</span> <span class="s2">&quot;American&quot;</span>
+
+    <span class="k">return</span> <span class="s2">&quot;&quot;</span></div>
+
+
+
+<div class="viewcode-block" id="_parse_gpa">
+<a class="viewcode-back" href="../api/clean.html#clean._parse_gpa">[docs]</a>
+<span class="k">def</span><span class="w"> </span><span class="nf">_parse_gpa</span><span class="p">(</span>
+    <span class="n">text</span><span class="p">:</span> <span class="nb">str</span><span class="p">,</span>
+<span class="p">)</span> <span class="o">-&gt;</span> <span class="nb">str</span><span class="p">:</span>
+<span class="w">    </span><span class="sd">&quot;&quot;&quot;Extract the GPA as a normalised ``&quot;GPA &lt;value&gt;&quot;`` string.</span>
+
+<span class="sd">    :param text: Raw metadata text.</span>
+<span class="sd">    :returns: e.g. ``&quot;GPA 3.70&quot;``, or ``&quot;&quot;`` if no GPA is present.</span>
+<span class="sd">    :rtype: str</span>
+<span class="sd">    &quot;&quot;&quot;</span>
+
+    <span class="n">match</span> <span class="o">=</span> <span class="n">re</span><span class="o">.</span><span class="n">search</span><span class="p">(</span>
+        <span class="sa">r</span><span class="s2">&quot;\bGPA\s*[:\-]?\s*([0-4](?:\.\d{1,3})?)\b&quot;</span><span class="p">,</span>
+        <span class="n">text</span><span class="p">,</span>
+        <span class="n">re</span><span class="o">.</span><span class="n">IGNORECASE</span><span class="p">,</span>
+    <span class="p">)</span>
+
+    <span class="k">return</span> <span class="sa">f</span><span class="s2">&quot;GPA </span><span class="si">{</span><span class="n">match</span><span class="o">.</span><span class="n">group</span><span class="p">(</span><span class="mi">1</span><span class="p">)</span><span class="si">}</span><span class="s2">&quot;</span> <span class="k">if</span> <span class="n">match</span> <span class="k">else</span> <span class="s2">&quot;&quot;</span></div>
+
+
+
+<span class="c1"># GRE scores show up in the same fixed structured block as GPA (e.g. &quot;GRE</span>
+<span class="c1"># 168 GRE V 163 GRE AW 4.50 GPA 3.70&quot;), so these three follow the exact same</span>
+<span class="c1"># search-anywhere-in-the-text approach as _parse_gpa above. Order matters</span>
+<span class="c1"># for the Quant pattern: it requires a digit immediately after &quot;GRE&quot; (only</span>
+<span class="c1"># whitespace/colon/dash in between), so it never accidentally matches into</span>
+<span class="c1"># &quot;GRE V ...&quot; or &quot;GRE AW ...&quot; (both have a letter, not a digit, right after</span>
+<span class="c1"># &quot;GRE&quot;). Verified against the full 40k-row dataset: 3,044 / 2,463 / 2,160</span>
+<span class="c1"># entries carry a Quant / Verbal / AW score respectively, and every match</span>
+<span class="c1"># pulled the correct number.</span>
+<span class="n">_GRE_Q_RE</span> <span class="o">=</span> <span class="n">re</span><span class="o">.</span><span class="n">compile</span><span class="p">(</span>
+    <span class="sa">r</span><span class="s2">&quot;\bGRE\s*[:\-]?\s*(\d{2,3})\b&quot;</span><span class="p">,</span>
+    <span class="n">re</span><span class="o">.</span><span class="n">IGNORECASE</span><span class="p">,</span>
+<span class="p">)</span>
+
+<span class="n">_GRE_V_RE</span> <span class="o">=</span> <span class="n">re</span><span class="o">.</span><span class="n">compile</span><span class="p">(</span>
+    <span class="sa">r</span><span class="s2">&quot;\bGRE\s*V\s*[:\-]?\s*(\d{2,3})\b&quot;</span><span class="p">,</span>
+    <span class="n">re</span><span class="o">.</span><span class="n">IGNORECASE</span><span class="p">,</span>
+<span class="p">)</span>
+
+<span class="n">_GRE_AW_RE</span> <span class="o">=</span> <span class="n">re</span><span class="o">.</span><span class="n">compile</span><span class="p">(</span>
+    <span class="sa">r</span><span class="s2">&quot;\bGRE\s*AW\s*[:\-]?\s*(\d(?:\.\d{1,2})?)\b&quot;</span><span class="p">,</span>
+    <span class="n">re</span><span class="o">.</span><span class="n">IGNORECASE</span><span class="p">,</span>
+<span class="p">)</span>
+
+
+<div class="viewcode-block" id="_parse_gre">
+<a class="viewcode-back" href="../api/clean.html#clean._parse_gre">[docs]</a>
+<span class="k">def</span><span class="w"> </span><span class="nf">_parse_gre</span><span class="p">(</span>
+    <span class="n">text</span><span class="p">:</span> <span class="nb">str</span><span class="p">,</span>
+<span class="p">)</span> <span class="o">-&gt;</span> <span class="nb">str</span><span class="p">:</span>
+<span class="w">    </span><span class="sd">&quot;&quot;&quot;Extract the GRE Quantitative score as ``&quot;GRE &lt;n&gt;&quot;``.</span>
+
+<span class="sd">    :param text: Raw metadata text.</span>
+<span class="sd">    :returns: e.g. ``&quot;GRE 168&quot;``, or ``&quot;&quot;``.</span>
+<span class="sd">    :rtype: str</span>
+<span class="sd">    &quot;&quot;&quot;</span>
+
+    <span class="n">match</span> <span class="o">=</span> <span class="n">_GRE_Q_RE</span><span class="o">.</span><span class="n">search</span><span class="p">(</span><span class="n">text</span><span class="p">)</span>
+
+    <span class="k">return</span> <span class="sa">f</span><span class="s2">&quot;GRE </span><span class="si">{</span><span class="n">match</span><span class="o">.</span><span class="n">group</span><span class="p">(</span><span class="mi">1</span><span class="p">)</span><span class="si">}</span><span class="s2">&quot;</span> <span class="k">if</span> <span class="n">match</span> <span class="k">else</span> <span class="s2">&quot;&quot;</span></div>
+
+
+
+<div class="viewcode-block" id="_parse_gre_v">
+<a class="viewcode-back" href="../api/clean.html#clean._parse_gre_v">[docs]</a>
+<span class="k">def</span><span class="w"> </span><span class="nf">_parse_gre_v</span><span class="p">(</span>
+    <span class="n">text</span><span class="p">:</span> <span class="nb">str</span><span class="p">,</span>
+<span class="p">)</span> <span class="o">-&gt;</span> <span class="nb">str</span><span class="p">:</span>
+<span class="w">    </span><span class="sd">&quot;&quot;&quot;Extract the GRE Verbal score as ``&quot;GRE V &lt;n&gt;&quot;``.</span>
+
+<span class="sd">    :param text: Raw metadata text.</span>
+<span class="sd">    :returns: e.g. ``&quot;GRE V 163&quot;``, or ``&quot;&quot;``.</span>
+<span class="sd">    :rtype: str</span>
+<span class="sd">    &quot;&quot;&quot;</span>
+
+    <span class="n">match</span> <span class="o">=</span> <span class="n">_GRE_V_RE</span><span class="o">.</span><span class="n">search</span><span class="p">(</span><span class="n">text</span><span class="p">)</span>
+
+    <span class="k">return</span> <span class="sa">f</span><span class="s2">&quot;GRE V </span><span class="si">{</span><span class="n">match</span><span class="o">.</span><span class="n">group</span><span class="p">(</span><span class="mi">1</span><span class="p">)</span><span class="si">}</span><span class="s2">&quot;</span> <span class="k">if</span> <span class="n">match</span> <span class="k">else</span> <span class="s2">&quot;&quot;</span></div>
+
+
+
+<div class="viewcode-block" id="_parse_gre_aw">
+<a class="viewcode-back" href="../api/clean.html#clean._parse_gre_aw">[docs]</a>
+<span class="k">def</span><span class="w"> </span><span class="nf">_parse_gre_aw</span><span class="p">(</span>
+    <span class="n">text</span><span class="p">:</span> <span class="nb">str</span><span class="p">,</span>
+<span class="p">)</span> <span class="o">-&gt;</span> <span class="nb">str</span><span class="p">:</span>
+<span class="w">    </span><span class="sd">&quot;&quot;&quot;Extract the GRE Analytical Writing score as ``&quot;GRE AW &lt;n&gt;&quot;``.</span>
+
+<span class="sd">    :param text: Raw metadata text.</span>
+<span class="sd">    :returns: e.g. ``&quot;GRE AW 4.50&quot;``, or ``&quot;&quot;``.</span>
+<span class="sd">    :rtype: str</span>
+<span class="sd">    &quot;&quot;&quot;</span>
+
+    <span class="n">match</span> <span class="o">=</span> <span class="n">_GRE_AW_RE</span><span class="o">.</span><span class="n">search</span><span class="p">(</span><span class="n">text</span><span class="p">)</span>
+
+    <span class="k">return</span> <span class="sa">f</span><span class="s2">&quot;GRE AW </span><span class="si">{</span><span class="n">match</span><span class="o">.</span><span class="n">group</span><span class="p">(</span><span class="mi">1</span><span class="p">)</span><span class="si">}</span><span class="s2">&quot;</span> <span class="k">if</span> <span class="n">match</span> <span class="k">else</span> <span class="s2">&quot;&quot;</span></div>
+
+
+
+<div class="viewcode-block" id="_extract_degree">
+<a class="viewcode-back" href="../api/clean.html#clean._extract_degree">[docs]</a>
+<span class="k">def</span><span class="w"> </span><span class="nf">_extract_degree</span><span class="p">(</span>
+    <span class="n">program_text</span><span class="p">:</span> <span class="nb">str</span><span class="p">,</span>
+<span class="p">)</span> <span class="o">-&gt;</span> <span class="nb">tuple</span><span class="p">[</span><span class="nb">str</span><span class="p">,</span> <span class="nb">str</span><span class="p">]:</span>
+<span class="w">    </span><span class="sd">&quot;&quot;&quot;Split the trailing degree token (Masters/PhD/...) off the program text.</span>
+
+<span class="sd">    :param program_text: Raw program text, e.g.</span>
+<span class="sd">        ``&quot;Speech Language Pathology Masters&quot;``.</span>
+<span class="sd">    :returns: ``(program_name, degree)``, e.g.</span>
+<span class="sd">        ``(&quot;Speech Language Pathology&quot;, &quot;Masters&quot;)``. ``degree`` is ``&quot;&quot;``</span>
+<span class="sd">        if no recognised suffix is found.</span>
+<span class="sd">    :rtype: tuple[str, str]</span>
+<span class="sd">    &quot;&quot;&quot;</span>
+
+    <span class="n">match</span> <span class="o">=</span> <span class="n">_DEGREE_SUFFIX_RE</span><span class="o">.</span><span class="n">search</span><span class="p">(</span><span class="n">program_text</span><span class="p">)</span>
+
+    <span class="k">if</span> <span class="ow">not</span> <span class="n">match</span><span class="p">:</span>
+        <span class="k">return</span> <span class="n">_clean_text</span><span class="p">(</span><span class="n">program_text</span><span class="p">),</span> <span class="s2">&quot;&quot;</span>
+
+    <span class="n">degree</span> <span class="o">=</span> <span class="n">_clean_text</span><span class="p">(</span><span class="n">match</span><span class="o">.</span><span class="n">group</span><span class="p">(</span><span class="mi">1</span><span class="p">))</span>
+    <span class="n">program_name</span> <span class="o">=</span> <span class="n">_clean_text</span><span class="p">(</span><span class="n">program_text</span><span class="p">[:</span> <span class="n">match</span><span class="o">.</span><span class="n">start</span><span class="p">()])</span>
+
+    <span class="k">return</span> <span class="n">program_name</span><span class="p">,</span> <span class="n">degree</span></div>
+
+
+
+<div class="viewcode-block" id="_extract_comment">
+<a class="viewcode-back" href="../api/clean.html#clean._extract_comment">[docs]</a>
+<span class="k">def</span><span class="w"> </span><span class="nf">_extract_comment</span><span class="p">(</span>
+    <span class="n">meta_text</span><span class="p">:</span> <span class="nb">str</span><span class="p">,</span>
+<span class="p">)</span> <span class="o">-&gt;</span> <span class="nb">str</span><span class="p">:</span>
+<span class="w">    </span><span class="sd">&quot;&quot;&quot;Strip the structured prefix off the meta text, leaving the comment.</span>
+
+<span class="sd">    The prefix (status/date/term/type/GRE/GPA) is matched by</span>
+<span class="sd">    ``_META_PREFIX_RE``; whatever remains is the applicant&#39;s free-text</span>
+<span class="sd">    comment.</span>
+
+<span class="sd">    :param meta_text: Raw metadata/comment text.</span>
+<span class="sd">    :returns: The free-text comment, possibly ``&quot;&quot;``.</span>
+<span class="sd">    :rtype: str</span>
+<span class="sd">    &quot;&quot;&quot;</span>
+
+    <span class="n">match</span> <span class="o">=</span> <span class="n">_META_PREFIX_RE</span><span class="o">.</span><span class="n">match</span><span class="p">(</span><span class="n">meta_text</span><span class="p">)</span>
+    <span class="n">residue</span> <span class="o">=</span> <span class="n">meta_text</span><span class="p">[</span><span class="n">match</span><span class="o">.</span><span class="n">end</span><span class="p">():]</span> <span class="k">if</span> <span class="n">match</span> <span class="k">else</span> <span class="n">meta_text</span>
+
+    <span class="k">return</span> <span class="n">_clean_text</span><span class="p">(</span><span class="n">residue</span><span class="p">)</span></div>
+
+
+
+<span class="c1"># ============================================================================</span>
+<span class="c1"># Clean data</span>
+<span class="c1"># ============================================================================</span>
+
+<div class="viewcode-block" id="clean_data">
+<a class="viewcode-back" href="../api/clean.html#clean.clean_data">[docs]</a>
+<span class="k">def</span><span class="w"> </span><span class="nf">clean_data</span><span class="p">(</span>
+    <span class="n">raw_entries</span><span class="p">:</span> <span class="nb">list</span><span class="p">[</span><span class="nb">dict</span><span class="p">],</span>
+<span class="p">)</span> <span class="o">-&gt;</span> <span class="nb">list</span><span class="p">[</span><span class="nb">dict</span><span class="p">]:</span>
+<span class="w">    </span><span class="sd">&quot;&quot;&quot;Turn raw scraped entries into cleaned, structured entries.</span>
+
+<span class="sd">    Input entries use the keys produced by :func:`scrape._parse_page`</span>
+<span class="sd">    (``raw_school_text``, ``raw_program_text``, ``raw_comment_text``,</span>
+<span class="sd">    ``raw_added_on_text``, ``raw_decision_text``, ``raw_meta_text``,</span>
+<span class="sd">    ``url``). Output entries are ready for the</span>
+<span class="sd">    ``llm-generated-program`` / ``llm-generated-university`` tagging step</span>
+<span class="sd">    and, after that, :mod:`load_data`.</span>
+
+<span class="sd">    :param raw_entries: Raw scraper output.</span>
+<span class="sd">    :returns: One cleaned dictionary per input entry, in the same order.</span>
+<span class="sd">    :rtype: list[dict]</span>
+
+<span class="sd">    &gt;&gt;&gt; clean_data([{&quot;raw_school_text&quot;: &quot;MIT&quot;,</span>
+<span class="sd">    ...              &quot;raw_program_text&quot;: &quot;Computer Science PhD&quot;,</span>
+<span class="sd">    ...              &quot;raw_meta_text&quot;: &quot;Accepted Fall 2026 International GPA 3.90&quot;}])[0][&quot;Degree&quot;]</span>
+<span class="sd">    &#39;PhD&#39;</span>
+<span class="sd">    &quot;&quot;&quot;</span>
+
+    <span class="n">cleaned</span><span class="p">:</span> <span class="nb">list</span><span class="p">[</span><span class="nb">dict</span><span class="p">]</span> <span class="o">=</span> <span class="p">[]</span>
+
+    <span class="k">for</span> <span class="n">entry</span> <span class="ow">in</span> <span class="n">raw_entries</span><span class="p">:</span>
+
+        <span class="n">school_text</span> <span class="o">=</span> <span class="n">_clean_text</span><span class="p">(</span>
+            <span class="n">entry</span><span class="o">.</span><span class="n">get</span><span class="p">(</span><span class="s2">&quot;raw_school_text&quot;</span><span class="p">)</span>
+        <span class="p">)</span>
+
+        <span class="n">program_text</span> <span class="o">=</span> <span class="n">_clean_text</span><span class="p">(</span>
+            <span class="n">entry</span><span class="o">.</span><span class="n">get</span><span class="p">(</span><span class="s2">&quot;raw_program_text&quot;</span><span class="p">)</span>
+        <span class="p">)</span>
+
+        <span class="n">program_name</span><span class="p">,</span> <span class="n">degree</span> <span class="o">=</span> <span class="n">_extract_degree</span><span class="p">(</span>
+            <span class="n">program_text</span>
+        <span class="p">)</span>
+
+        <span class="n">program</span> <span class="o">=</span> <span class="s2">&quot;, &quot;</span><span class="o">.</span><span class="n">join</span><span class="p">(</span>
+            <span class="n">part</span> <span class="k">for</span> <span class="n">part</span> <span class="ow">in</span> <span class="p">(</span><span class="n">program_name</span><span class="p">,</span> <span class="n">school_text</span><span class="p">)</span> <span class="k">if</span> <span class="n">part</span>
+        <span class="p">)</span>
+
+        <span class="n">comments</span> <span class="o">=</span> <span class="n">_extract_comment</span><span class="p">(</span>
+            <span class="n">_clean_text</span><span class="p">(</span><span class="n">entry</span><span class="o">.</span><span class="n">get</span><span class="p">(</span><span class="s2">&quot;raw_comment_text&quot;</span><span class="p">))</span>
+        <span class="p">)</span>
+
+        <span class="n">raw_added_on</span> <span class="o">=</span> <span class="n">_clean_text</span><span class="p">(</span>
+            <span class="n">entry</span><span class="o">.</span><span class="n">get</span><span class="p">(</span><span class="s2">&quot;raw_added_on_text&quot;</span><span class="p">)</span>
+        <span class="p">)</span>
+
+        <span class="k">if</span> <span class="n">raw_added_on</span> <span class="ow">and</span> <span class="ow">not</span> <span class="n">raw_added_on</span><span class="o">.</span><span class="n">lower</span><span class="p">()</span><span class="o">.</span><span class="n">startswith</span><span class="p">(</span><span class="s2">&quot;added on&quot;</span><span class="p">):</span>
+            <span class="n">date_added</span> <span class="o">=</span> <span class="sa">f</span><span class="s2">&quot;Added on </span><span class="si">{</span><span class="n">raw_added_on</span><span class="si">}</span><span class="s2">&quot;</span>
+        <span class="k">else</span><span class="p">:</span>
+            <span class="n">date_added</span> <span class="o">=</span> <span class="n">raw_added_on</span>
+
+        <span class="n">url</span> <span class="o">=</span> <span class="n">_clean_text</span><span class="p">(</span>
+            <span class="n">entry</span><span class="o">.</span><span class="n">get</span><span class="p">(</span><span class="s2">&quot;url&quot;</span><span class="p">)</span>
+        <span class="p">)</span>
+
+        <span class="n">status</span> <span class="o">=</span> <span class="n">_clean_text</span><span class="p">(</span>
+            <span class="n">entry</span><span class="o">.</span><span class="n">get</span><span class="p">(</span><span class="s2">&quot;raw_decision_text&quot;</span><span class="p">)</span>
+        <span class="p">)</span>
+
+        <span class="n">meta_text</span> <span class="o">=</span> <span class="n">_clean_text</span><span class="p">(</span>
+            <span class="n">entry</span><span class="o">.</span><span class="n">get</span><span class="p">(</span><span class="s2">&quot;raw_meta_text&quot;</span><span class="p">)</span>
+        <span class="p">)</span>
+
+        <span class="n">term</span> <span class="o">=</span> <span class="n">_parse_term</span><span class="p">(</span><span class="n">meta_text</span><span class="p">)</span>
+        <span class="n">student_type</span> <span class="o">=</span> <span class="n">_parse_student_type</span><span class="p">(</span><span class="n">meta_text</span><span class="p">)</span>
+        <span class="n">gre</span> <span class="o">=</span> <span class="n">_parse_gre</span><span class="p">(</span><span class="n">meta_text</span><span class="p">)</span>
+        <span class="n">gre_v</span> <span class="o">=</span> <span class="n">_parse_gre_v</span><span class="p">(</span><span class="n">meta_text</span><span class="p">)</span>
+        <span class="n">gre_aw</span> <span class="o">=</span> <span class="n">_parse_gre_aw</span><span class="p">(</span><span class="n">meta_text</span><span class="p">)</span>
+        <span class="n">gpa</span> <span class="o">=</span> <span class="n">_parse_gpa</span><span class="p">(</span><span class="n">meta_text</span><span class="p">)</span>
+
+        <span class="n">cleaned_entry</span><span class="p">:</span> <span class="nb">dict</span><span class="p">[</span><span class="nb">str</span><span class="p">,</span> <span class="nb">str</span><span class="p">]</span> <span class="o">=</span> <span class="p">{}</span>
+
+        <span class="k">if</span> <span class="n">program</span><span class="p">:</span>
+            <span class="n">cleaned_entry</span><span class="p">[</span><span class="s2">&quot;program&quot;</span><span class="p">]</span> <span class="o">=</span> <span class="n">program</span>
+
+        <span class="n">cleaned_entry</span><span class="p">[</span><span class="s2">&quot;comments&quot;</span><span class="p">]</span> <span class="o">=</span> <span class="n">comments</span>
+
+        <span class="k">if</span> <span class="n">date_added</span><span class="p">:</span>
+            <span class="n">cleaned_entry</span><span class="p">[</span><span class="s2">&quot;date_added&quot;</span><span class="p">]</span> <span class="o">=</span> <span class="n">date_added</span>
+
+        <span class="k">if</span> <span class="n">url</span><span class="p">:</span>
+            <span class="n">cleaned_entry</span><span class="p">[</span><span class="s2">&quot;url&quot;</span><span class="p">]</span> <span class="o">=</span> <span class="n">url</span>
+
+        <span class="k">if</span> <span class="n">status</span><span class="p">:</span>
+            <span class="n">cleaned_entry</span><span class="p">[</span><span class="s2">&quot;status&quot;</span><span class="p">]</span> <span class="o">=</span> <span class="n">status</span>
+
+        <span class="k">if</span> <span class="n">term</span><span class="p">:</span>
+            <span class="n">cleaned_entry</span><span class="p">[</span><span class="s2">&quot;term&quot;</span><span class="p">]</span> <span class="o">=</span> <span class="n">term</span>
+
+        <span class="k">if</span> <span class="n">student_type</span><span class="p">:</span>
+            <span class="n">cleaned_entry</span><span class="p">[</span><span class="s2">&quot;US/International&quot;</span><span class="p">]</span> <span class="o">=</span> <span class="n">student_type</span>
+
+        <span class="k">if</span> <span class="n">gre</span><span class="p">:</span>
+            <span class="n">cleaned_entry</span><span class="p">[</span><span class="s2">&quot;GRE&quot;</span><span class="p">]</span> <span class="o">=</span> <span class="n">gre</span>
+
+        <span class="k">if</span> <span class="n">gre_v</span><span class="p">:</span>
+            <span class="n">cleaned_entry</span><span class="p">[</span><span class="s2">&quot;GRE V&quot;</span><span class="p">]</span> <span class="o">=</span> <span class="n">gre_v</span>
+
+        <span class="k">if</span> <span class="n">gre_aw</span><span class="p">:</span>
+            <span class="n">cleaned_entry</span><span class="p">[</span><span class="s2">&quot;GRE AW&quot;</span><span class="p">]</span> <span class="o">=</span> <span class="n">gre_aw</span>
+
+        <span class="k">if</span> <span class="n">gpa</span><span class="p">:</span>
+            <span class="n">cleaned_entry</span><span class="p">[</span><span class="s2">&quot;GPA&quot;</span><span class="p">]</span> <span class="o">=</span> <span class="n">gpa</span>
+
+        <span class="k">if</span> <span class="n">degree</span><span class="p">:</span>
+            <span class="n">cleaned_entry</span><span class="p">[</span><span class="s2">&quot;Degree&quot;</span><span class="p">]</span> <span class="o">=</span> <span class="n">degree</span>
+
+        <span class="n">cleaned</span><span class="o">.</span><span class="n">append</span><span class="p">(</span>
+            <span class="n">cleaned_entry</span>
+        <span class="p">)</span>
+
+    <span class="k">return</span> <span class="n">cleaned</span></div>
+
+
+
+<span class="c1"># ============================================================================</span>
+<span class="c1"># I/O</span>
+<span class="c1"># ============================================================================</span>
+
+<div class="viewcode-block" id="load_data">
+<a class="viewcode-back" href="../api/clean.html#clean.load_data">[docs]</a>
+<span class="k">def</span><span class="w"> </span><span class="nf">load_data</span><span class="p">(</span>
+    <span class="n">in_path</span><span class="p">:</span> <span class="nb">str</span><span class="p">,</span>
+<span class="p">)</span> <span class="o">-&gt;</span> <span class="nb">list</span><span class="p">[</span><span class="nb">dict</span><span class="p">]:</span>
+<span class="w">    </span><span class="sd">&quot;&quot;&quot;Load raw scraper JSON from disk.</span>
+
+<span class="sd">    :param in_path: Path to the input JSON file.</span>
+<span class="sd">    :returns: The decoded list of raw entries.</span>
+<span class="sd">    :rtype: list[dict]</span>
+<span class="sd">    :raises FileNotFoundError: If ``in_path`` does not exist.</span>
+<span class="sd">    &quot;&quot;&quot;</span>
+
+    <span class="n">path</span> <span class="o">=</span> <span class="n">Path</span><span class="p">(</span><span class="n">in_path</span><span class="p">)</span>
+
+    <span class="k">if</span> <span class="ow">not</span> <span class="n">path</span><span class="o">.</span><span class="n">exists</span><span class="p">():</span>
+        <span class="k">raise</span> <span class="ne">FileNotFoundError</span><span class="p">(</span>
+            <span class="sa">f</span><span class="s2">&quot;Input file not found: </span><span class="si">{</span><span class="n">path</span><span class="si">}</span><span class="s2">&quot;</span>
+        <span class="p">)</span>
+
+    <span class="k">with</span> <span class="n">path</span><span class="o">.</span><span class="n">open</span><span class="p">(</span>
+        <span class="s2">&quot;r&quot;</span><span class="p">,</span>
+        <span class="n">encoding</span><span class="o">=</span><span class="s2">&quot;utf-8&quot;</span><span class="p">,</span>
+    <span class="p">)</span> <span class="k">as</span> <span class="n">file</span><span class="p">:</span>
+
+        <span class="k">return</span> <span class="n">json</span><span class="o">.</span><span class="n">load</span><span class="p">(</span><span class="n">file</span><span class="p">)</span></div>
+
+
+
+<div class="viewcode-block" id="save_data">
+<a class="viewcode-back" href="../api/clean.html#clean.save_data">[docs]</a>
+<span class="k">def</span><span class="w"> </span><span class="nf">save_data</span><span class="p">(</span>
+    <span class="n">entries</span><span class="p">:</span> <span class="nb">list</span><span class="p">[</span><span class="nb">dict</span><span class="p">],</span>
+    <span class="n">out_path</span><span class="p">:</span> <span class="nb">str</span><span class="p">,</span>
+<span class="p">)</span> <span class="o">-&gt;</span> <span class="kc">None</span><span class="p">:</span>
+<span class="w">    </span><span class="sd">&quot;&quot;&quot;Write cleaned entries to ``out_path`` as pretty-printed UTF-8 JSON.</span>
+
+<span class="sd">    :param entries: Cleaned entries.</span>
+<span class="sd">    :param out_path: Destination file path.</span>
+<span class="sd">    :raises RuntimeError: If the file cannot be written.</span>
+<span class="sd">    &quot;&quot;&quot;</span>
+
+    <span class="k">try</span><span class="p">:</span>
+
+        <span class="k">with</span> <span class="nb">open</span><span class="p">(</span>
+            <span class="n">out_path</span><span class="p">,</span>
+            <span class="s2">&quot;w&quot;</span><span class="p">,</span>
+            <span class="n">encoding</span><span class="o">=</span><span class="s2">&quot;utf-8&quot;</span><span class="p">,</span>
+        <span class="p">)</span> <span class="k">as</span> <span class="n">file</span><span class="p">:</span>
+
+            <span class="n">json</span><span class="o">.</span><span class="n">dump</span><span class="p">(</span>
+                <span class="n">entries</span><span class="p">,</span>
+                <span class="n">file</span><span class="p">,</span>
+                <span class="n">ensure_ascii</span><span class="o">=</span><span class="kc">False</span><span class="p">,</span>
+                <span class="n">indent</span><span class="o">=</span><span class="mi">2</span><span class="p">,</span>
+            <span class="p">)</span>
+
+    <span class="k">except</span> <span class="ne">OSError</span> <span class="k">as</span> <span class="n">exc</span><span class="p">:</span>
+
+        <span class="k">raise</span> <span class="ne">RuntimeError</span><span class="p">(</span>
+            <span class="sa">f</span><span class="s2">&quot;Could not write output file &#39;</span><span class="si">{</span><span class="n">out_path</span><span class="si">}</span><span class="s2">&#39;: </span><span class="si">{</span><span class="n">exc</span><span class="si">}</span><span class="s2">&quot;</span>
+        <span class="p">)</span> <span class="kn">from</span><span class="w"> </span><span class="nn">exc</span>
+
+    <span class="nb">print</span><span class="p">(</span>
+        <span class="sa">f</span><span class="s2">&quot;[output] Wrote </span><span class="si">{</span><span class="nb">len</span><span class="p">(</span><span class="n">entries</span><span class="p">)</span><span class="si">:</span><span class="s2">,</span><span class="si">}</span><span class="s2"> entries to </span><span class="si">{</span><span class="n">out_path</span><span class="si">}</span><span class="s2">&quot;</span>
+    <span class="p">)</span></div>
+
+
+
+<span class="c1"># ============================================================================</span>
+<span class="c1"># CLI</span>
+<span class="c1"># ============================================================================</span>
+
+<div class="viewcode-block" id="main">
+<a class="viewcode-back" href="../api/clean.html#clean.main">[docs]</a>
+<span class="k">def</span><span class="w"> </span><span class="nf">main</span><span class="p">()</span> <span class="o">-&gt;</span> <span class="nb">int</span><span class="p">:</span>
+<span class="w">    </span><span class="sd">&quot;&quot;&quot;Command-line entry point.</span>
+
+<span class="sd">    Options: ``--input/-i`` (default ``applicant_data.json``) and</span>
+<span class="sd">    ``--output/-o`` (default ``cleaned_applicant_data_new.json``).</span>
+
+<span class="sd">    :returns: ``0`` on success or empty input, ``1`` if the input is missing.</span>
+<span class="sd">    :rtype: int</span>
+<span class="sd">    &quot;&quot;&quot;</span>
+
+    <span class="n">parser</span> <span class="o">=</span> <span class="n">argparse</span><span class="o">.</span><span class="n">ArgumentParser</span><span class="p">(</span>
+        <span class="n">description</span><span class="o">=</span><span class="p">(</span>
+            <span class="s2">&quot;Clean a raw GradCafe JSON export into structured fields &quot;</span>
+            <span class="s2">&quot;(program, comments, date_added, url, status, term, &quot;</span>
+            <span class="s2">&quot;US/International, GRE, GRE V, GRE AW, GPA, Degree).&quot;</span>
+        <span class="p">)</span>
+    <span class="p">)</span>
+
+    <span class="n">parser</span><span class="o">.</span><span class="n">add_argument</span><span class="p">(</span>
+        <span class="s2">&quot;--input&quot;</span><span class="p">,</span>
+        <span class="s2">&quot;-i&quot;</span><span class="p">,</span>
+        <span class="n">default</span><span class="o">=</span><span class="s2">&quot;applicant_data.json&quot;</span><span class="p">,</span>
+        <span class="n">help</span><span class="o">=</span><span class="s2">&quot;Path to input JSON (default: applicant_data.json).&quot;</span><span class="p">,</span>
+    <span class="p">)</span>
+
+    <span class="n">parser</span><span class="o">.</span><span class="n">add_argument</span><span class="p">(</span>
+        <span class="s2">&quot;--output&quot;</span><span class="p">,</span>
+        <span class="s2">&quot;-o&quot;</span><span class="p">,</span>
+        <span class="n">default</span><span class="o">=</span><span class="s2">&quot;cleaned_applicant_data_new.json&quot;</span><span class="p">,</span>
+        <span class="n">help</span><span class="o">=</span><span class="s2">&quot;Path to write regex-cleaned JSON (default: cleaned_applicant_data_new.json).&quot;</span><span class="p">,</span>
+    <span class="p">)</span>
+
+    <span class="n">args</span> <span class="o">=</span> <span class="n">parser</span><span class="o">.</span><span class="n">parse_args</span><span class="p">()</span>
+
+    <span class="k">try</span><span class="p">:</span>
+        <span class="n">entries</span> <span class="o">=</span> <span class="n">load_data</span><span class="p">(</span><span class="n">args</span><span class="o">.</span><span class="n">input</span><span class="p">)</span>
+    <span class="k">except</span> <span class="ne">FileNotFoundError</span> <span class="k">as</span> <span class="n">exc</span><span class="p">:</span>
+        <span class="nb">print</span><span class="p">(</span><span class="sa">f</span><span class="s2">&quot;[error] </span><span class="si">{</span><span class="n">exc</span><span class="si">}</span><span class="s2">&quot;</span><span class="p">,</span> <span class="n">file</span><span class="o">=</span><span class="n">sys</span><span class="o">.</span><span class="n">stderr</span><span class="p">)</span>
+        <span class="k">return</span> <span class="mi">1</span>
+
+    <span class="k">if</span> <span class="ow">not</span> <span class="n">entries</span><span class="p">:</span>
+        <span class="nb">print</span><span class="p">(</span><span class="s2">&quot;No entries to process. Nothing was written.&quot;</span><span class="p">)</span>
+        <span class="k">return</span> <span class="mi">0</span>
+
+    <span class="n">cleaned</span> <span class="o">=</span> <span class="n">clean_data</span><span class="p">(</span><span class="n">entries</span><span class="p">)</span>
+    <span class="n">save_data</span><span class="p">(</span><span class="n">cleaned</span><span class="p">,</span> <span class="n">args</span><span class="o">.</span><span class="n">output</span><span class="p">)</span>
+
+    <span class="k">return</span> <span class="mi">0</span></div>
+
+
+
+<span class="k">if</span> <span class="vm">__name__</span> <span class="o">==</span> <span class="s2">&quot;__main__&quot;</span><span class="p">:</span>
+    <span class="n">sys</span><span class="o">.</span><span class="n">exit</span><span class="p">(</span><span class="n">main</span><span class="p">())</span>
+</pre></div>
+
+           </div>
+          </div>
+          <footer>
+
+  <hr/>
+
+  <div role="contentinfo">
+    <p>&#169; Copyright 2026, Shane Battles (sbattl15).</p>
+  </div>
+
+  Built with <a href="https://www.sphinx-doc.org/">Sphinx</a> using a
+    <a href="https://github.com/readthedocs/sphinx_rtd_theme">theme</a>
+    provided by <a href="https://readthedocs.org">Read the Docs</a>.
+   
+
+</footer>
+        </div>
+      </div>
+    </section>
+  </div>
+  <script>
+      jQuery(function () {
+          SphinxRtdTheme.Navigation.enable(true);
+      });
+  </script> 
+
+</body>
+</html>

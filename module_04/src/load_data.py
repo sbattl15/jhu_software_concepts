@@ -1,3 +1,20 @@
+"""Load cleaned GradCafe applicant data into PostgreSQL.
+
+This module is the **database-loading** stage of the ETL pipeline. It reads
+the LLM-extended JSON produced by the cleaning step, converts free-form
+string fields (``"Added on Feb 17, 2026"``, ``"GPA 3.85"``, ``"GRE V 160"``)
+into typed Python values, and bulk-upserts them into the ``applicants``
+table.
+
+Connection settings come from the standard libpq environment variables
+(``PGDATABASE``, ``PGUSER``, ``PGPASSWORD``, ``PGHOST``, ``PGPORT``) and can be
+overridden on the command line.
+
+Example::
+
+    python load_data.py --json-file llm_extend_applicant_data.json --create-db
+"""
+
 from __future__ import annotations
 
 import argparse
@@ -30,6 +47,17 @@ DATE_ADDED_FMT = "%b %d, %Y"  # e.g. "Feb 17, 2026"
 
 
 def parse_date_added(value: Optional[str]) -> Optional[date]:
+    """Parse an ``"Added on <Mon DD, YYYY>"`` string into a :class:`datetime.date`.
+
+    :param value: Raw ``date_added`` string, e.g. ``"Added on Feb 17, 2026"``.
+    :type value: str or None
+    :returns: The parsed date, or ``None`` if the value is empty, does not
+        match the expected prefix, or has an unparseable date.
+    :rtype: datetime.date or None
+
+    >>> parse_date_added("Added on Feb 17, 2026")
+    datetime.date(2026, 2, 17)
+    """
     if not value:
         return None
     m = DATE_ADDED_RE.match(value)
@@ -42,12 +70,19 @@ def parse_date_added(value: Optional[str]) -> Optional[date]:
 
 
 def parse_gpa(value: Optional[str]) -> Optional[float]:
-    """Parses the "GPA <value>" strings, e.g. "GPA 3.85". Some entries use
-    a weighted/non-4.0 scale (values up to ~4.9 appear in the data), so
-    this does not clamp or reject those — it just returns whatever number
-    was reported, keeping the column an honest float rather than silently
-    dropping ~100+ legitimate GPA values or risking a CHECK-constraint
-    failure that would abort the whole batch insert."""
+    """Parse a ``"GPA <value>"`` string, e.g. ``"GPA 3.85"``, into a float.
+
+    Some entries use a weighted/non-4.0 scale (values up to ~4.9 appear in
+    the data), so this does not clamp or reject those -- it returns whatever
+    number was reported, keeping the column an honest float rather than
+    silently dropping legitimate values or tripping a CHECK constraint that
+    would abort the whole batch insert.
+
+    :param value: Raw GPA string.
+    :type value: str or None
+    :returns: The numeric GPA, or ``None`` if missing or unparseable.
+    :rtype: float or None
+    """
     if not value:
         return None
     m = GPA_RE.match(value.strip())
@@ -60,10 +95,18 @@ def parse_gpa(value: Optional[str]) -> Optional[float]:
 
 
 def parse_score(value: Optional[str]) -> Optional[float]:
-    """Extracts a trailing numeric score (GRE Quant/Verbal/AW) from a
-    free-form string such as "GRE 166" or "GRE AW 4.5". Returns None
-    (rather than raising) for missing or unparseable values so a record
-    with no GRE scores never blocks the load."""
+    """Extract a trailing numeric GRE score from a free-form string.
+
+    Works for Quant, Verbal and Analytical Writing, e.g. ``"GRE 166"``,
+    ``"GRE V 160"`` or ``"GRE AW 4.5"``. Returns ``None`` (rather than
+    raising) for missing or unparseable values so a record with no GRE
+    scores never blocks the load.
+
+    :param value: Raw score string.
+    :type value: str or None
+    :returns: The score as a float, or ``None``.
+    :rtype: float or None
+    """
     if not value:
         return None
     m = SCORE_RE.search(value.strip())
@@ -76,6 +119,13 @@ def parse_score(value: Optional[str]) -> Optional[float]:
 
 
 def clean_text(value: Optional[str]) -> Optional[str]:
+    """Strip surrounding whitespace and normalise empty strings to ``None``.
+
+    :param value: Text to clean.
+    :type value: str or None
+    :returns: The stripped string, or ``None`` if it was ``None`` or blank.
+    :rtype: str or None
+    """
     if value is None:
         return None
     value = value.strip()
@@ -83,11 +133,32 @@ def clean_text(value: Optional[str]) -> Optional[str]:
 
 
 def load_records(path: Path) -> list[dict[str, Any]]:
+    """Read the source JSON file into a list of applicant dictionaries.
+
+    :param path: Path to a JSON file containing a list of applicant objects.
+    :type path: pathlib.Path
+    :returns: The decoded list of records.
+    :rtype: list[dict[str, Any]]
+    :raises FileNotFoundError: If ``path`` does not exist.
+    :raises json.JSONDecodeError: If the file is not valid JSON.
+    """
     with open(path, "r", encoding="utf-8") as f:
         return json.load(f)
 
 
 def to_row(rec: dict[str, Any]) -> tuple:
+    """Convert one JSON record into a parameter tuple for :data:`INSERT_SQL`.
+
+    The tuple order matches the column list in :data:`INSERT_SQL`:
+    ``program, comments, date_added, url, status, term,
+    us_or_international, gpa, gre, gre_v, gre_aw, degree,
+    llm_generated_program, llm_generated_university``.
+
+    :param rec: A single applicant record from the JSON file.
+    :type rec: dict[str, Any]
+    :returns: A 14-element tuple of typed column values.
+    :rtype: tuple
+    """
     return (
         rec.get("program"),
         clean_text(rec.get("comments")),
@@ -112,6 +183,20 @@ def to_row(rec: dict[str, Any]) -> tuple:
 def create_database_if_missing(
     dbname: str, user: Optional[str], password: Optional[str], host: str, port: str
 ) -> None:
+    """Create the target database if it does not already exist.
+
+    Connects to the ``postgres`` maintenance database with autocommit
+    enabled (``CREATE DATABASE`` cannot run inside a transaction). The
+    connecting role needs the ``CREATEDB`` privilege.
+
+    :param dbname: Name of the database to create.
+    :param user: PostgreSQL role name.
+    :param password: Password for ``user`` (``None`` to rely on ``PGPASSWORD``
+        or ``~/.pgpass``).
+    :param host: Database host.
+    :param port: Database port.
+    :rtype: None
+    """
     with psycopg.connect(
         dbname="postgres",
         user=user,
@@ -132,6 +217,8 @@ def create_database_if_missing(
 # --------------------------------------------------------------------------
 # Schema
 
+#: DDL for the ``applicants`` table and its lookup indexes. Idempotent
+#: (``IF NOT EXISTS``) so it is safe to run on every load.
 CREATE_TABLE_SQL = """
 CREATE TABLE IF NOT EXISTS applicants (
     p_id                        SERIAL PRIMARY KEY,   -- unique identifier
@@ -157,10 +244,14 @@ CREATE INDEX IF NOT EXISTS idx_applicants_term         ON applicants (term);
 CREATE INDEX IF NOT EXISTS idx_applicants_degree       ON applicants (degree);
 """
 
+#: Brings a table created by an older version of this script up to date
+#: (drops a legacy GPA CHECK constraint that rejected weighted GPAs).
 MIGRATE_SQL = """
 ALTER TABLE applicants DROP CONSTRAINT IF EXISTS applicants_gpa_check;
 """
 
+#: Parameterised upsert keyed on ``url``. Re-running the loader refreshes
+#: every column of existing rows instead of failing on the UNIQUE constraint.
 INSERT_SQL = """
 INSERT INTO applicants (
     program, comments, date_added, url, status, term,
@@ -187,6 +278,18 @@ ON CONFLICT (url) DO UPDATE SET
 
 
 def main() -> None:
+    """Command-line entry point: parse arguments and load the JSON file.
+
+    Steps:
+
+    1. Optionally create the database (``--create-db``).
+    2. Read the JSON file and convert every record with :func:`to_row`.
+    3. Run :data:`CREATE_TABLE_SQL` and :data:`MIGRATE_SQL`.
+    4. Bulk-upsert all rows with :data:`INSERT_SQL` in a single transaction,
+       rolling back on any error.
+
+    :raises Exception: Re-raises any database error after rolling back.
+    """
     parser = argparse.ArgumentParser(
         description="Load thegradcafe.com applicant result JSON into PostgreSQL."
     )
