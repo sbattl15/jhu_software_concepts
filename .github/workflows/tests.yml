@@ -70,6 +70,7 @@ jobs:
           python src/load_data.py --json-file "$JSON_FILE"
 
       - name: Run full pytest suite with coverage
+        working-directory: module_04
         run: |
           MARKS="web or buttons or analysis or db or integration"
           if [ -f pytest.ini ]; then
