@@ -5,7 +5,7 @@ from pathlib import Path
 
 import pytest
 from sqlalchemy import delete, select
-from sqlalchemy.exc import SQLAlchemyError
+from sqlalchemy.exc import IntegrityError, SQLAlchemyError
 
 PROJECT_ROOT = Path(__file__).resolve().parent.parent
 if str(PROJECT_ROOT) not in sys.path:
@@ -50,7 +50,7 @@ def db_session():
     except SQLAlchemyError as exc:
         pytest.skip(
             "Could not reach a Postgres 'applicants' table to run the "
-            "database-write tests against (check PGHOST/PGPORT/PGUSER/"
+            "database-write tests against (check DATABASE_URL or PGHOST/PGPORT/PGUSER/"
             f"PGPASSWORD/PGDATABASE): {exc}"
         )
 
@@ -158,3 +158,21 @@ class TestSimpleQueryFunction:
 
     def test_missing_url_returns_none_rather_than_erroring(self, db_session):
         assert q.get_applicant_by_url(db_session, _test_url("does-not-exist")) is None
+
+
+class TestNoPartialWrites:
+    def test_a_failing_batch_writes_nothing(self, db_session):
+        """Error path: if one row in a pull violates the schema, the whole
+        batch is rolled back -- the good rows are not left half-written."""
+        good_rows = [
+            pull_data._to_applicant_row(_fake_cleaned_row("atomic-1")),
+            pull_data._to_applicant_row(_fake_cleaned_row("atomic-2")),
+        ]
+        bad_row = dict(good_rows[0], url=_test_url("atomic-bad"), program=None)
+
+        with pytest.raises(IntegrityError):
+            pull_data._load_rows(db_session, good_rows + [bad_row])
+        db_session.rollback()
+
+        for suffix in ("atomic-1", "atomic-2", "atomic-bad"):
+            assert q.get_applicant_by_url(db_session, _test_url(suffix)) is None

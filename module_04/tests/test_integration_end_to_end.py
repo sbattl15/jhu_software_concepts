@@ -3,10 +3,10 @@ from __future__ import annotations
 import json
 import re
 import sys
-import time
 from pathlib import Path
 
 import pytest
+from bs4 import BeautifulSoup
 from sqlalchemy import delete, select
 from sqlalchemy.exc import SQLAlchemyError
 
@@ -23,7 +23,7 @@ pytestmark = pytest.mark.integration
 
 PULL_DATA_PATH = "/pull-data"
 UPDATE_ANALYSIS_PATH = "/update-analysis"
-ANALYSIS_PATH = "/"
+ANALYSIS_PATH = "/analysis"
 
 # A prefix no real Grad Cafe URL could ever have -- lets this suite find,
 # and only ever touch, the rows it created itself.
@@ -104,15 +104,19 @@ class _FakeScraperProcess:
 
 def _wait_until_idle(flask_app_module, timeout=5.0):
     """The pull finishes on a background daemon thread started by the
-    request handler; give it a moment to land before checking status or
-    hitting a route gated on "not busy"."""
-    deadline = time.monotonic() + timeout
-    while time.monotonic() < deadline:
-        with flask_app_module._pull_lock:
-            if not flask_app_module._pull_state["running"]:
-                return
-        time.sleep(0.01)
-    raise AssertionError("pull never finished running within the timeout")
+    request handler. app.wait_for_pull() joins that thread, so there is no
+    sleep-and-poll loop."""
+    assert flask_app_module.wait_for_pull(timeout), "pull never finished"
+
+
+def _fall_2026_count(client) -> int:
+    """Question 1's answer (Fall 2026 entries) as rendered on the page."""
+    html = client.get(ANALYSIS_PATH).get_data(as_text=True)
+    first_answer = BeautifulSoup(html, "html.parser").select_one(
+        '[data-testid="analysis-answer"]'
+    )
+    digits = first_answer.get_text().replace("Answer:", "").replace(",", "").strip()
+    return int(digits)
 
 
 def _inject_fake_scraper(flask_app_module, monkeypatch, cleaned_rows) -> None:
@@ -137,7 +141,7 @@ def flask_app_module():
     except SQLAlchemyError as exc:
         pytest.skip(
             "Could not reach a Postgres 'applicants' table to run the "
-            "integration tests against (check PGHOST/PGPORT/PGUSER/"
+            "integration tests against (check DATABASE_URL or PGHOST/PGPORT/PGUSER/"
             f"PGPASSWORD/PGDATABASE): {exc}"
         )
 
@@ -165,8 +169,8 @@ def flask_app_module():
 
 @pytest.fixture
 def app(flask_app_module):
-    flask_app_module.app.config.update(TESTING=True)
-    return flask_app_module.app
+    """A fresh app from the create_app() factory, in testing mode."""
+    return flask_app_module.create_app({"TESTING": True})
 
 
 @pytest.fixture
@@ -179,10 +183,12 @@ class TestEndToEnd:
         # i. Inject a fake scraper that returns multiple records.
         records = [_fake_cleaned_row("1"), _fake_cleaned_row("2"), _fake_cleaned_row("3")]
         _inject_fake_scraper(flask_app_module, monkeypatch, records)
+        count_before = _fall_2026_count(client)
 
         # ii. POST /pull-data succeeds and rows are in the database.
         response = client.post(PULL_DATA_PATH)
         assert response.status_code == 200
+        assert response.get_json()["ok"] is True
 
         with get_session() as session:
             for suffix in ("1", "2", "3"):
@@ -196,8 +202,9 @@ class TestEndToEnd:
         # iii. POST /update-analysis succeeds (when not busy).
         response = client.post(UPDATE_ANALYSIS_PATH)
         assert response.status_code == 200
+        assert response.get_json()["ok"] is True
 
-        # iv. GET / shows the updated analysis with correctly formatted values.
+        # iv. GET /analysis shows the updated analysis with correctly formatted values.
         response = client.get(ANALYSIS_PATH)
         assert response.status_code == 200
         html = response.get_data(as_text=True)
@@ -209,6 +216,8 @@ class TestEndToEnd:
         assert not not_two_decimals, (
             f"found percentage(s) not formatted to two decimals: {not_two_decimals}"
         )
+        # The three new Fall 2026 rows show up in the rendered analysis.
+        assert _fall_2026_count(client) == count_before + 3
 
 
 class TestMultiplePulls:

@@ -4,6 +4,7 @@ import sys
 from pathlib import Path
 
 import pytest
+from bs4 import BeautifulSoup
 
 # app.py lives at the project root (one level above tests/); make sure it's
 # importable regardless of where pytest is invoked from.
@@ -59,8 +60,8 @@ def app(monkeypatch):
         lambda session: [("Fall 2025", 15), ("Fall 2026", 20)],
     )
 
-    flask_app_module.app.config.update(TESTING=True)
-    yield flask_app_module.app
+    # 1a: the app under test comes from the create_app() factory.
+    yield flask_app_module.create_app({"TESTING": True})
 
 
 @pytest.fixture
@@ -80,12 +81,20 @@ class TestAppFactory:
         assert isinstance(app, Flask)
         assert app.testing is True
 
+    def test_create_app_factory_accepts_config(self):
+        import app as flask_app_module
+
+        test_app = flask_app_module.create_app({"TESTING": True, "SOME_SETTING": "x"})
+        assert test_app.config["SOME_SETTING"] == "x"
+
     @pytest.mark.parametrize(
         "rule,expected_methods",
         [
             ("/", {"GET"}),
+            ("/analysis", {"GET"}),
             ("/pull-data", {"POST"}),
             ("/pull-data/status", {"GET"}),
+            ("/update-analysis", {"POST"}),
         ],
     )
     def test_each_established_route_is_registered(self, app, rule, expected_methods):
@@ -95,21 +104,33 @@ class TestAppFactory:
 
 
 # ---------------------------------------------------------------------------
-# 1b. Test GET / analysis (page load)
+# 1b. Test GET /analysis (page load)
 # ---------------------------------------------------------------------------
 
 
 class TestAnalysisPageLoad:
     def test_status_200(self, client):
-        response = client.get("/")
+        response = client.get("/analysis")
         assert response.status_code == 200
 
+    def test_root_url_serves_the_same_page(self, client):
+        assert client.get("/").status_code == 200
+
     def test_page_contains_pull_data_and_update_analysis_buttons(self, client):
-        html = client.get("/").get_data(as_text=True)
-        assert "Pull Data" in html
-        assert "Update Analysis" in html
+        html = client.get("/analysis").get_data(as_text=True)
+        soup = BeautifulSoup(html, "html.parser")
+
+        pull_button = soup.select_one('button[data-testid="pull-data-btn"]')
+        update_button = soup.select_one('button[data-testid="update-analysis-btn"]')
+
+        assert pull_button is not None
+        assert update_button is not None
+        assert "Pull Data" in pull_button.get_text()
+        assert "Update Analysis" in update_button.get_text()
 
     def test_page_text_includes_analysis_and_an_answer(self, client):
-        html = client.get("/").get_data(as_text=True)
-        assert "Analysis" in html
+        html = client.get("/analysis").get_data(as_text=True)
+        soup = BeautifulSoup(html, "html.parser")
+        assert "Analysis" in soup.get_text()
+        assert soup.select('[data-testid="analysis-answer"]')
         assert "Answer:" in html

@@ -1,7 +1,6 @@
 from __future__ import annotations
 
 import sys
-import time
 from datetime import datetime
 from pathlib import Path
 
@@ -53,17 +52,11 @@ class _FakePullProcess:
         return self._returncode
 
 
-def _wait_until_idle(flask_app_module, timeout=2.0):
+def _wait_until_idle(flask_app_module, timeout=5.0):
     """The pull pipeline finishes on a background daemon thread started by
-    the request handler, so give it a moment to land before asserting on
-    the final status."""
-    deadline = time.monotonic() + timeout
-    while time.monotonic() < deadline:
-        with flask_app_module._pull_lock:
-            if not flask_app_module._pull_state["running"]:
-                return
-        time.sleep(0.01)
-    raise AssertionError("pull never finished running within the timeout")
+    the request handler. app.wait_for_pull() joins that thread, so the
+    test waits on observable state instead of sleeping."""
+    assert flask_app_module.wait_for_pull(timeout), "pull never finished"
 
 
 @pytest.fixture
@@ -101,8 +94,8 @@ def flask_app_module(monkeypatch):
 
 @pytest.fixture
 def app(flask_app_module):
-    flask_app_module.app.config.update(TESTING=True)
-    return flask_app_module.app
+    """A fresh app from the create_app() factory, in testing mode."""
+    return flask_app_module.create_app({"TESTING": True})
 
 
 @pytest.fixture
@@ -138,6 +131,7 @@ class TestPullData:
 
         response = client.post(PULL_DATA_PATH)
         assert response.status_code == 200
+        assert response.get_json()["ok"] is True
 
         _wait_until_idle(flask_app_module)
 
@@ -178,6 +172,18 @@ class TestUpdateAnalysis:
     def test_returns_200_when_not_busy(self, client):
         response = client.post(UPDATE_ANALYSIS_PATH)
         assert response.status_code == 200
+        body = response.get_json()
+        assert body["ok"] is True
+        assert body["updated"] is True
+
+    def test_reruns_the_analysis_queries(self, flask_app_module, client, monkeypatch):
+        calls = []
+        monkeypatch.setattr(
+            flask_app_module.q, "question_1", lambda session: calls.append(1) or 99
+        )
+        client.post(UPDATE_ANALYSIS_PATH)
+        client.post(UPDATE_ANALYSIS_PATH)
+        assert len(calls) == 2, "each Update Analysis click should re-query"
 
 
 # ---------------------------------------------------------------------------
@@ -203,6 +209,7 @@ class TestBusyGating:
 
         response = client.post(UPDATE_ANALYSIS_PATH)
         assert response.status_code == 409
+        assert response.get_json()["busy"] is True
 
     def test_pull_data_returns_409_while_busy(self, flask_app_module, client, monkeypatch):
         _mark_pull_running(flask_app_module)
@@ -216,3 +223,48 @@ class TestBusyGating:
 
         response = client.post(PULL_DATA_PATH)
         assert response.status_code == 409
+        assert response.get_json()["busy"] is True
+
+
+# ---------------------------------------------------------------------------
+# Error path: the loader can't be started
+# ---------------------------------------------------------------------------
+
+
+class TestPullDataErrors:
+    def test_loader_start_failure_returns_500_and_changes_nothing(
+        self, flask_app_module, client, monkeypatch
+    ):
+        def _broken_popen(*args, **kwargs):
+            raise OSError("python executable not found")
+
+        monkeypatch.setattr(flask_app_module.subprocess, "Popen", _broken_popen)
+
+        response = client.post(PULL_DATA_PATH)
+
+        assert response.status_code == 500
+        body = response.get_json()
+        assert body["ok"] is False
+        assert "python executable not found" in body["error"]
+        # Nothing was started, so the app is not left "busy".
+        status = client.get(STATUS_PATH).get_json()
+        assert status["running"] is False
+        assert client.post(UPDATE_ANALYSIS_PATH).status_code == 200
+
+    def test_failed_pull_is_reported_as_unsuccessful(
+        self, flask_app_module, client, monkeypatch
+    ):
+        monkeypatch.setattr(
+            flask_app_module.subprocess,
+            "Popen",
+            lambda *a, **k: _FakePullProcess(
+                ["[pull_data] Database load failed: boom"], returncode=1
+            ),
+        )
+
+        assert client.post(PULL_DATA_PATH).status_code == 200
+        _wait_until_idle(flask_app_module)
+
+        status = client.get(STATUS_PATH).get_json()
+        assert status["success"] is False
+        assert "Database load failed" in status["message"]

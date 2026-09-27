@@ -6,6 +6,11 @@ app -- Flask Application & Routes
 .. automodule:: app
    :no-members:
 
+Application factory
+-------------------
+
+.. autofunction:: app.create_app
+
 HTTP routes
 -----------
 
@@ -18,6 +23,7 @@ Pull Data control
 -----------------
 
 .. autofunction:: app.start_pull_data
+.. autofunction:: app.wait_for_pull
 .. autofunction:: app._watch_pull_process
 .. autofunction:: app._pull_is_running
 .. autofunction:: app._pull_status_snapshot

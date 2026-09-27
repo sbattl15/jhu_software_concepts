@@ -1,6 +1,7 @@
 """Covers the remaining branches of app.py and models.py: the Pull Data
 status watcher's success/failure paths, start_pull_data()'s error paths,
-the analysis trend labels, and each module's ``__main__`` block. No
+the create_app() factory's configuration, DATABASE_URL handling in
+models.py, the analysis trend labels, and each module's ``__main__`` block. No
 database or real subprocess is used."""
 
 from __future__ import annotations
@@ -11,6 +12,7 @@ from datetime import datetime
 import flask
 import pytest
 import sqlalchemy.orm
+from sqlalchemy.engine import URL
 
 import app as flask_app_module
 import models
@@ -147,11 +149,36 @@ class TestStartPullData:
         assert _state()["running"] is False
 
     def test_pull_data_route_returns_409_when_start_loses_race(self, monkeypatch):
-        monkeypatch.setattr(flask_app_module, "start_pull_data", lambda: (False, "busy"))
+        def _lost_race():
+            # Another request started a pull between the route's own busy
+            # check and start_pull_data() taking the lock.
+            with flask_app_module._pull_lock:
+                flask_app_module._pull_state["running"] = True
+            return False, "busy"
+
+        monkeypatch.setattr(flask_app_module, "start_pull_data", _lost_race)
         client = flask_app_module.app.test_client()
         response = client.post("/pull-data")
         assert response.status_code == 409
-        assert response.get_json() == {"error": "busy"}
+        assert response.get_json() == {"ok": False, "busy": True, "error": "busy"}
+
+    def test_database_url_override_is_passed_to_the_subprocess(self, monkeypatch):
+        seen = {}
+
+        def _fake_popen(*args, **kwargs):
+            seen.update(kwargs)
+            return _FakeProc([])
+
+        monkeypatch.setattr(flask_app_module, "_database_url_override", "postgresql://t/db")
+        monkeypatch.setattr(flask_app_module.subprocess, "Popen", _fake_popen)
+        started, _ = flask_app_module.start_pull_data()
+        assert started is True
+        assert flask_app_module.wait_for_pull(5)
+        assert seen["env"]["DATABASE_URL"] == "postgresql://t/db"
+
+    def test_wait_for_pull_with_no_pull_started(self, monkeypatch):
+        monkeypatch.setattr(flask_app_module, "_pull_thread", None)
+        assert flask_app_module.wait_for_pull(0) is True
 
     def test_status_route_serializes_datetimes(self):
         when = datetime(2026, 2, 3, 4, 5, 6)
@@ -161,6 +188,34 @@ class TestStartPullData:
         body = client.get("/pull-data/status").get_json()
         assert body["started_at"] == when.isoformat()
         assert body["finished_at"] == when.isoformat()
+
+
+# ---------------------------------------------------------------------------
+# create_app() factory
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.web
+class TestCreateApp:
+    def test_each_call_builds_a_new_configured_app(self):
+        first = flask_app_module.create_app({"TESTING": True})
+        second = flask_app_module.create_app()
+        assert first is not second
+        assert first.testing is True
+        assert second.testing is False
+
+    def test_database_url_config_overrides_the_connection(self, monkeypatch):
+        configured = []
+        monkeypatch.setattr(flask_app_module, "_database_url_override", None)
+        monkeypatch.setattr(models, "configure_database", configured.append)
+
+        test_app = flask_app_module.create_app(
+            {"TESTING": True, "DATABASE_URL": "postgresql://tester@localhost/test_db"}
+        )
+
+        assert test_app.config["DATABASE_URL"] == "postgresql://tester@localhost/test_db"
+        assert configured == ["postgresql://tester@localhost/test_db"]
+        assert flask_app_module._database_url_override == "postgresql://tester@localhost/test_db"
 
 
 # ---------------------------------------------------------------------------
@@ -253,3 +308,55 @@ class TestModels:
         monkeypatch.setattr(sqlalchemy.orm, "sessionmaker", lambda **kw: _Session)
         runpy.run_path(models.__file__, run_name="__main__")
         assert "1,234 row(s)" in capsys.readouterr().out
+
+    @pytest.mark.parametrize(
+        "url,expected",
+        [
+            ("postgresql://u:p@h:5432/db", "postgresql+psycopg://u:p@h:5432/db"),
+            ("postgres://u:p@h/db", "postgresql+psycopg://u:p@h/db"),
+            ("postgresql+psycopg://u@h/db", "postgresql+psycopg://u@h/db"),
+        ],
+    )
+    def test_normalize_database_url(self, url, expected):
+        assert models.normalize_database_url(url) == expected
+
+    def test_database_url_env_var_is_used_when_set(self, monkeypatch):
+        monkeypatch.setenv("DATABASE_URL", "postgresql://a:b@dbhost:5433/grad")
+        assert models.database_url_from_env() == "postgresql+psycopg://a:b@dbhost:5433/grad"
+
+    def test_pg_variables_are_the_fallback(self, monkeypatch):
+        monkeypatch.delenv("DATABASE_URL", raising=False)
+        monkeypatch.setenv("PGUSER", "alice")
+        monkeypatch.setenv("PGHOST", "pghost")
+        monkeypatch.setenv("PGPORT", "6543")
+        monkeypatch.setenv("PGDATABASE", "grad")
+        url = models.database_url_from_env()
+        assert isinstance(url, URL)
+        assert (url.username, url.host, url.port, url.database) == ("alice", "pghost", 6543, "grad")
+        assert url.drivername == "postgresql+psycopg"
+
+    @pytest.mark.parametrize(
+        "new_url",
+        [
+            "postgresql://x:y@otherhost:5432/other_db",
+            URL.create("postgresql+psycopg", host="otherhost", database="other_db"),
+        ],
+    )
+    def test_configure_database_rebinds_new_sessions(self, monkeypatch, new_url):
+        # monkeypatch restores DATABASE_URL/engine; the finally restores the
+        # session factory's binding, so later tests use the original database.
+        monkeypatch.setattr(models, "DATABASE_URL", models.DATABASE_URL)
+        monkeypatch.setattr(models, "engine", models.engine)
+        original_engine = models.engine
+        try:
+            models.configure_database(new_url)
+            assert models.engine is not original_engine
+            assert models.engine.url.host == "otherhost"
+            assert models.engine.url.drivername == "postgresql+psycopg"
+            session = models.get_session()
+            try:
+                assert session.get_bind() is models.engine
+            finally:
+                session.close()
+        finally:
+            models.SessionLocal.configure(bind=original_engine)

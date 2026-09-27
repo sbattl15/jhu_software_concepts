@@ -18,10 +18,10 @@
         <p class="generated">Generated {{ generated_at }}</p>
       </div>
       <div class="header-actions">
-        <button type="button" id="pull-data-btn" class="btn btn-primary" {% if pull_status.running %}disabled{% endif %}>
+        <button type="button" id="pull-data-btn" data-testid="pull-data-btn" class="btn btn-primary" {% if pull_status.running %}disabled{% endif %}>
           Pull Data
         </button>
-        <button type="button" id="update-analysis-btn" class="btn btn-secondary">Update Analysis</button>
+        <button type="button" id="update-analysis-btn" data-testid="update-analysis-btn" class="btn btn-secondary">Update Analysis</button>
       </div>
     </div>
   </header>
@@ -33,7 +33,7 @@
       some time (each new entry is also run through a local LLM to standardize its program and
       university name) &mdash; feel free to keep using the page while it runs.
     </p>
-    <p id="pull-status" class="pull-status status-{{ 'running' if pull_status.running else ('ok' if pull_status.success else ('error' if pull_status.success == false else 'idle')) }}"
+    <p id="pull-status" data-testid="pull-status" class="pull-status status-{{ 'running' if pull_status.running else ('ok' if pull_status.success else ('error' if pull_status.success == false else 'idle')) }}"
        data-poll="{{ 'true' if pull_status.running else 'false' }}">
       {{ pull_status.message }}
     </p>
@@ -48,7 +48,7 @@
         <article class="tile">
           <span class="tile-number">Q{{ r.number }}</span>
           <p class="tile-question">{{ r.question }}</p>
-          <p class="tile-answer"><strong>Answer:</strong> {{ r.answer | safe }}</p>
+          <p class="tile-answer" data-testid="analysis-answer"><strong>Answer:</strong> {{ r.answer | safe }}</p>
         </article>
         {% endfor %}
       </div>

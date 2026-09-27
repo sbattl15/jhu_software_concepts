@@ -1,5 +1,3 @@
-from __future__ import annotations
-
 """
 Part 9 pipeline: scrape -> clean -> standardize (LLM) -> load.
 
@@ -31,6 +29,9 @@ Prints a final ``PULL_DATA_SUMMARY::{...}`` JSON line that app.py's
 background watcher thread parses to build the status message shown on
 the webpage.
 """
+
+from __future__ import annotations
+
 
 import json
 import os
@@ -79,6 +80,13 @@ _DEGREE_NORMALIZE = {
 
 
 def _normalize_degree(raw: Optional[str]) -> Optional[str]:
+    """Map a raw degree token onto the exact strings the queries filter on.
+
+    :param raw: Degree token from :mod:`clean`, e.g. ``"Master's"`` or ``"Ph.D."``.
+    :returns: ``"Masters"``, ``"PhD"``, ... for known variants, the stripped
+        input for unknown ones, or ``None`` if empty.
+    :rtype: str or None
+    """
     if not raw:
         return None
     key = raw.strip().lower().replace("’", "'")
@@ -179,6 +187,15 @@ def _load_rows(session, rows: list[dict]) -> int:
 
 
 def main() -> int:
+    """Run the full Pull Data pipeline: scrape -> clean -> LLM -> insert.
+
+    Prints progress and a final ``PULL_DATA_SUMMARY::{json}`` line with the
+    ``raw``, ``usable``, ``inserted`` and ``duplicates`` counts, which
+    :func:`app._watch_pull_process` parses.
+
+    :returns: Process exit code (``0`` on success, non-zero on failure).
+    :rtype: int
+    """
     print(f"[pull_data] Starting Grad Cafe pull at {datetime.now().isoformat(timespec='seconds')}")
 
     try:

@@ -2,7 +2,9 @@
 
 This module is the **web layer**. It renders the analysis page (answers to
 the assignment questions, queried live from PostgreSQL via
-``orm_queries``), and exposes two buttons backed by JSON endpoints:
+``orm_queries``), and exposes two buttons backed by JSON endpoints.
+The app is built by the :func:`create_app` factory; the module-level
+:data:`app` is ``create_app()`` with the default configuration.
 
 * **Pull Data** -- ``POST /pull-data`` launches ``pull_data.py`` (scrape ->
   clean -> load) in a background subprocess; ``GET /pull-data/status``
@@ -16,14 +18,14 @@ Routes
 =========================  ======  ==========================================
 Route                      Method  Purpose
 =========================  ======  ==========================================
-``/``                      GET     Render ``index.html`` with fresh results.
+``/`` and ``/analysis``    GET     Render ``index.html`` with fresh results.
 ``/pull-data``             POST    Start a background data pull (409 if busy).
 ``/pull-data/status``      GET     JSON snapshot of the pull state.
 ``/update-analysis``       POST    Re-query the analysis (409 if pulling).
 =========================  ======  ==========================================
 
-Environment variables: ``FLASK_SECRET_KEY`` plus whatever ``models``
-uses to connect to the database (e.g. ``DATABASE_URL``).
+Environment variables: ``DATABASE_URL`` (PostgreSQL connection, read by
+``models``) and ``FLASK_SECRET_KEY``.
 """
 
 from __future__ import annotations
@@ -37,12 +39,9 @@ from pathlib import Path
 
 from flask import Flask, jsonify, render_template
 
+import models
 import orm_queries as q
 from models import get_session
-
-#: The Flask application instance.
-app = Flask(__name__)
-app.secret_key = os.environ.get("FLASK_SECRET_KEY", "dev-secret-change-me")
 
 #: Directory containing this file; used as the subprocess working directory.
 BASE_DIR = Path(__file__).resolve().parent
@@ -54,6 +53,10 @@ PULL_DATA_SCRIPT = BASE_DIR / "pull_data.py"
 # --------------------------------------------------------------------------
 
 _pull_lock = threading.Lock()
+#: Watcher thread of the most recent pull (see :func:`wait_for_pull`).
+_pull_thread: threading.Thread | None = None
+#: Database URL passed to :func:`create_app`, forwarded to ``pull_data.py``.
+_database_url_override = None
 _pull_state: dict = {
     "running": False,
     "started_at": None,
@@ -191,12 +194,17 @@ def start_pull_data() -> tuple[bool, str]:
         was already running or the process could not be launched.
     :rtype: tuple[bool, str]
     """
+    global _pull_thread
     with _pull_lock:
         if _pull_state["running"]:
             started_at = _pull_state["started_at"]
             when = started_at.strftime("%I:%M %p") if started_at else "recently"
             return False, f"A data pull is already running (started {when}). Please wait for it to finish."
 
+        popen_kwargs = {}
+        if _database_url_override is not None:
+            # Make the subprocess write to the same database the app reads.
+            popen_kwargs["env"] = {**os.environ, "DATABASE_URL": _database_url_override}
         try:
             proc = subprocess.Popen(
                 [sys.executable, str(PULL_DATA_SCRIPT)],
@@ -205,6 +213,7 @@ def start_pull_data() -> tuple[bool, str]:
                 stderr=subprocess.STDOUT,
                 text=True,
                 bufsize=1,
+                **popen_kwargs,
             )
         except OSError as exc:
             return False, f"Could not start Pull Data: {exc}"
@@ -215,8 +224,25 @@ def start_pull_data() -> tuple[bool, str]:
         _pull_state["success"] = None
         _pull_state["message"] = "Pull Data started..."
 
-    threading.Thread(target=_watch_pull_process, args=(proc,), daemon=True).start()
+    _pull_thread = threading.Thread(target=_watch_pull_process, args=(proc,), daemon=True)
+    _pull_thread.start()
     return True, "Started pulling new data from Grad Cafe. This may take a while depending on how much new data is available -- feel free to keep using the page."
+
+
+def wait_for_pull(timeout: float | None = None) -> bool:
+    """Block until the most recent pull's watcher thread has finished.
+
+    Lets tests (and scripts) wait for a pull deterministically instead of
+    polling with ``sleep()``.
+
+    :param timeout: Maximum seconds to wait, or ``None`` to wait forever.
+    :returns: ``True`` if no pull is running afterwards.
+    :rtype: bool
+    """
+    thread = _pull_thread
+    if thread is not None:
+        thread.join(timeout)
+    return not _pull_is_running()
 
 
 # --------------------------------------------------------------------------
@@ -365,9 +391,8 @@ def _build_analysis_context() -> dict:
     }
 
 
-@app.route("/")
 def analysis() -> str:
-    """``GET /`` -- render the analysis page.
+    """``GET /`` and ``GET /analysis`` -- render the analysis page.
 
     :returns: Rendered ``index.html`` with fresh query results and the
         current pull status.
@@ -383,27 +408,30 @@ def analysis() -> str:
 # --------------------------------------------------------------------------
 
 
-@app.route("/pull-data", methods=["POST"])
 def pull_data():
     """``POST /pull-data`` -- start a background data pull.
 
-    :returns: ``200`` with ``{"started": true, "message": ...}``, or
-        ``409`` with ``{"error": ...}`` if a pull is already running.
+    :returns: ``200`` with ``{"ok": true, "started": true, "message": ...}``;
+        ``409`` with ``{"ok": false, "busy": true, "error": ...}`` if a pull
+        is already running; or ``500`` with ``{"ok": false, "error": ...}``
+        if the pull process could not be started (nothing is written).
     :rtype: tuple[flask.Response, int]
     """
     if _pull_is_running():
-        return jsonify({"error": "A data pull is already in progress."}), 409
+        return jsonify({"ok": False, "busy": True, "error": "A data pull is already in progress."}), 409
 
     started, message = start_pull_data()
     if not started:
-        # Lost a race with another request between the check above and
-        # start_pull_data()'s own lock -- still busy, so still a 409.
-        return jsonify({"error": message}), 409
+        if _pull_is_running():
+            # Lost a race with another request between the check above and
+            # start_pull_data()'s own lock -- still busy, so still a 409.
+            return jsonify({"ok": False, "busy": True, "error": message}), 409
+        # The loader could not be launched at all.
+        return jsonify({"ok": False, "error": message}), 500
 
-    return jsonify({"started": True, "message": message}), 200
+    return jsonify({"ok": True, "started": True, "message": message}), 200
 
 
-@app.route("/pull-data/status")
 def pull_data_status():
     """``GET /pull-data/status`` -- report the current pull state.
 
@@ -424,20 +452,65 @@ def pull_data_status():
 # --------------------------------------------------------------------------
 
 
-@app.route("/update-analysis", methods=["POST"])
 def update_analysis():
     """``POST /update-analysis`` -- re-run the analysis queries.
 
-    :returns: ``200`` with ``{"updated": true, "generated_at": ...}``, or
-        ``409`` with ``{"error": ...}`` while a pull is running (no query
-        is executed in that case).
+    :returns: ``200`` with ``{"ok": true, "updated": true, "generated_at": ...}``,
+        or ``409`` with ``{"ok": false, "busy": true, "error": ...}`` while a
+        pull is running (no query is executed in that case).
     :rtype: tuple[flask.Response, int]
     """
     if _pull_is_running():
-        return jsonify({"error": "A data pull is in progress; try again once it finishes."}), 409
+        return jsonify({
+            "ok": False,
+            "busy": True,
+            "error": "A data pull is in progress; try again once it finishes.",
+        }), 409
 
     context = _build_analysis_context()
-    return jsonify({"updated": True, "generated_at": context["generated_at"]}), 200
+    return jsonify({"ok": True, "updated": True, "generated_at": context["generated_at"]}), 200
+
+
+# --------------------------------------------------------------------------
+# Application factory
+# --------------------------------------------------------------------------
+
+
+def create_app(config: dict | None = None) -> Flask:
+    """Build and configure the Flask application.
+
+    :param config: Optional settings merged into ``app.config``. Pass
+        ``{"DATABASE_URL": "postgresql://..."}`` to use a different
+        database (e.g. in tests), or ``{"TESTING": True}``.
+    :returns: A Flask app with every route registered.
+    :rtype: flask.Flask
+
+    Example::
+
+        app = create_app({"TESTING": True})
+        client = app.test_client()
+    """
+    global _database_url_override
+    flask_app = Flask(__name__)
+    flask_app.secret_key = os.environ.get("FLASK_SECRET_KEY", "dev-secret-change-me")
+    if config:
+        flask_app.config.update(config)
+
+    database_url = flask_app.config.get("DATABASE_URL")
+    if database_url:
+        models.configure_database(database_url)
+        _database_url_override = database_url
+
+    flask_app.add_url_rule("/", "analysis", analysis)
+    flask_app.add_url_rule("/analysis", "analysis", analysis)
+    flask_app.add_url_rule("/pull-data", "pull_data", pull_data, methods=["POST"])
+    flask_app.add_url_rule("/pull-data/status", "pull_data_status", pull_data_status)
+    flask_app.add_url_rule("/update-analysis", "update_analysis", update_analysis, methods=["POST"])
+    return flask_app
+
+
+#: The default application instance (``python app.py`` / ``flask --app app run``).
+app = create_app()
 
 
 if __name__ == "__main__":

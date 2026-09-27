@@ -232,9 +232,12 @@ class TestMain:
         assert "continuing without it: no model" in capsys.readouterr().err
 
     def test_database_failure_returns_1(self, monkeypatch, capsys):
-        _patch_pipeline(monkeypatch, session=_FakeSession(fail=True))
+        failing_session = _FakeSession(fail=True)
+        _patch_pipeline(monkeypatch, session=failing_session)
         assert pull_data.main() == 1
         assert "Database load failed: database is down" in capsys.readouterr().err
+        # The failed load never commits, so no partial batch is written.
+        assert failing_session.committed is False
 
     def test_module_main_block_exits_with_mains_return_code(self, monkeypatch):
         _patch_pipeline(monkeypatch, scrape_result=RuntimeError("offline"))

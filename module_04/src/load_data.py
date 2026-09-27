@@ -6,9 +6,10 @@ string fields (``"Added on Feb 17, 2026"``, ``"GPA 3.85"``, ``"GRE V 160"``)
 into typed Python values, and bulk-upserts them into the ``applicants``
 table.
 
-Connection settings come from the standard libpq environment variables
-(``PGDATABASE``, ``PGUSER``, ``PGPASSWORD``, ``PGHOST``, ``PGPORT``) and can be
-overridden on the command line.
+The database is chosen by the ``DATABASE_URL`` environment variable (or
+``--database-url``). If that isn't set, the standard libpq variables
+(``PGDATABASE``, ``PGUSER``, ``PGPASSWORD``, ``PGHOST``, ``PGPORT``) are used,
+and each can be overridden on the command line.
 
 Example::
 
@@ -44,6 +45,19 @@ GPA_RE = re.compile(r"^GPA\s+(?P<value>[\d.]+)$")
 SCORE_RE = re.compile(r"(?P<value>\d+(?:\.\d+)?)\s*$")
 
 DATE_ADDED_FMT = "%b %d, %Y"  # e.g. "Feb 17, 2026"
+
+
+def libpq_url(url: str) -> str:
+    """Convert a SQLAlchemy-style URL into one psycopg/libpq accepts.
+
+    :param url: e.g. ``postgresql+psycopg://u:p@host:5432/db``.
+    :returns: e.g. ``postgresql://u:p@host:5432/db``.
+    :rtype: str
+
+    >>> libpq_url("postgresql+psycopg://u:p@h/db")
+    'postgresql://u:p@h/db'
+    """
+    return url.replace("postgresql+psycopg://", "postgresql://", 1)
 
 
 def parse_date_added(value: Optional[str]) -> Optional[date]:
@@ -112,10 +126,9 @@ def parse_score(value: Optional[str]) -> Optional[float]:
     m = SCORE_RE.search(value.strip())
     if not m:
         return None
-    try:
-        return float(m.group("value"))
-    except ValueError:
-        return None
+    # SCORE_RE only matches digits with an optional decimal part, so the
+    # captured text is always a valid float.
+    return float(m.group("value"))
 
 
 def clean_text(value: Optional[str]) -> Optional[str]:
@@ -299,6 +312,13 @@ def main() -> None:
         default=Path("llm_extend_applicant_data.json"),
         help="Path to the source JSON file (a list of applicant-result objects).",
     )
+    parser.add_argument(
+        "--database-url",
+        default=os.environ.get("DATABASE_URL"),
+        help="PostgreSQL URL, e.g. postgresql://user:pw@localhost:5432/db "
+        "(default: $DATABASE_URL). Takes precedence over the --dbname/--user/"
+        "--host/--port options.",
+    )
     parser.add_argument("--dbname", default=os.environ.get("PGDATABASE", "gradcafe_applications"))
     parser.add_argument("--user", default=os.environ.get("PGUSER", "postgres"))
     parser.add_argument(
@@ -325,13 +345,16 @@ def main() -> None:
     records = load_records(args.json_file)
     rows = [to_row(rec) for rec in records]
 
-    conn = psycopg.connect(
-        dbname=args.dbname,
-        user=args.user,
-        password=args.password,
-        host=args.host,
-        port=args.port,
-    )
+    if args.database_url:
+        conn = psycopg.connect(libpq_url(args.database_url))
+    else:
+        conn = psycopg.connect(
+            dbname=args.dbname,
+            user=args.user,
+            password=args.password,
+            host=args.host,
+            port=args.port,
+        )
 
     try:
         with conn.cursor() as cur:

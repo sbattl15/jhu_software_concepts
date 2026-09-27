@@ -4,10 +4,11 @@ This module is part of the **database layer**. It connects to PostgreSQL
 with :mod:`psycopg`, runs one query per assignment question against the
 ``applicants`` table (created by :mod:`load_data`), and prints the answers.
 
-Connection settings come from the libpq environment variables
-``PGDATABASE`` (default ``gradcafe_applications``), ``PGUSER`` (default
-``postgres``), ``PGPASSWORD``, ``PGHOST`` (default ``localhost``) and
-``PGPORT`` (default ``5432``).
+The database is chosen by the ``DATABASE_URL`` environment variable. If it
+isn't set, the libpq variables ``PGDATABASE`` (default
+``gradcafe_applications``), ``PGUSER`` (default ``postgres``),
+``PGPASSWORD``, ``PGHOST`` (default ``localhost``) and ``PGPORT`` (default
+``5432``) are used.
 
 Example::
 
@@ -22,13 +23,29 @@ import os
 import psycopg
 
 
+def libpq_url(url: str) -> str:
+    """Convert a SQLAlchemy-style URL into one psycopg/libpq accepts.
+
+    :param url: e.g. ``postgresql+psycopg://u:p@host:5432/db``.
+    :returns: e.g. ``postgresql://u:p@host:5432/db``.
+    :rtype: str
+
+    >>> libpq_url("postgresql+psycopg://u:p@h/db")
+    'postgresql://u:p@h/db'
+    """
+    return url.replace("postgresql+psycopg://", "postgresql://", 1)
+
+
 def get_connection() -> psycopg.Connection:
-    """Open a PostgreSQL connection from the ``PG*`` environment variables.
+    """Open a PostgreSQL connection from ``DATABASE_URL`` or the ``PG*`` variables.
 
     :returns: An open psycopg connection. The caller must close it.
     :rtype: psycopg.Connection
     :raises psycopg.OperationalError: If the database is unreachable.
     """
+    database_url = os.environ.get("DATABASE_URL")
+    if database_url:
+        return psycopg.connect(libpq_url(database_url))
     return psycopg.connect(
         dbname=os.environ.get("PGDATABASE", "gradcafe_applications"),
         user=os.environ.get("PGUSER", "postgres"),

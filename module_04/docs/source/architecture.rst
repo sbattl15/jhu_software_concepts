@@ -29,7 +29,11 @@ Web layer
 
 **Module:** :mod:`app` (``src/flask_website/app.py``)
 
-* ``GET /`` calls :func:`app._build_analysis_context`, which re-queries the
+* :func:`app.create_app` builds the Flask app and registers every route. It
+  accepts a config dict, e.g. ``{"TESTING": True, "DATABASE_URL": ...}``,
+  so tests can run against their own database. The module-level ``app`` is
+  ``create_app()`` with the defaults.
+* ``GET /analysis`` (and ``/``) calls :func:`app._build_analysis_context`, which re-queries the
   database through ``orm_queries`` on every request, so the page always
   shows current numbers.
 * ``POST /pull-data`` starts ``pull_data.py`` as a **background subprocess**
@@ -47,22 +51,23 @@ Web layer
      - Method
      - Success
      - When busy
-   * - ``/``
+   * - ``/analysis`` and ``/``
      - GET
      - 200, rendered ``index.html``
      - --
    * - ``/pull-data``
      - POST
-     - 200 ``{"started": true, "message": ...}``
-     - 409 ``{"error": ...}``
+     - 200 ``{"ok": true, "started": true, "message": ...}``;
+       500 ``{"ok": false, "error": ...}`` if the loader can't start
+     - 409 ``{"ok": false, "busy": true, "error": ...}``
    * - ``/pull-data/status``
      - GET
      - 200 ``{"running", "started_at", "finished_at", "success", "message"}``
      - --
    * - ``/update-analysis``
      - POST
-     - 200 ``{"updated": true, "generated_at": ...}``
-     - 409 ``{"error": ...}``, no query run
+     - 200 ``{"ok": true, "updated": true, "generated_at": ...}``
+     - 409 ``{"ok": false, "busy": true, "error": ...}``, no query run
 
 ETL layer
 ---------
@@ -148,6 +153,10 @@ by the SQLAlchemy ``Applicant`` model in ``models.py``):
 
 Indexes cover ``llm_generated_university``, ``llm_generated_program``,
 ``term`` and ``degree``.
+
+``models.py`` reads the connection from ``DATABASE_URL`` (falling back to
+the ``PG*`` variables), and :func:`app.create_app` can override it with
+``models.configure_database()``.
 
 Two query paths answer the same questions:
 

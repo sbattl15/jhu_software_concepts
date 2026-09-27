@@ -5,6 +5,7 @@ import sys
 from pathlib import Path
 
 import pytest
+from bs4 import BeautifulSoup
 
 PROJECT_ROOT = Path(__file__).resolve().parent.parent
 if str(PROJECT_ROOT) not in sys.path:
@@ -63,14 +64,13 @@ def app(monkeypatch):
         lambda session: [("Fall 2025", 13), ("Fall 2026", 17)],
     )
 
-    flask_app_module.app.config.update(TESTING=True)
-    return flask_app_module.app
+    return flask_app_module.create_app({"TESTING": True})
 
 
 @pytest.fixture
 def page_html(app):
     client = app.test_client()
-    response = client.get("/")
+    response = client.get("/analysis")
     assert response.status_code == 200
     return response.get_data(as_text=True)
 
@@ -84,6 +84,13 @@ class TestAnswerLabels:
         # carry its own "Answer:" label, not just one shared label on the
         # page somewhere.
         assert page_html.count("Answer:") >= 9
+
+    def test_every_answer_element_starts_with_the_label(self, page_html):
+        answers = BeautifulSoup(page_html, "html.parser").select(
+            '[data-testid="analysis-answer"]'
+        )
+        assert len(answers) == 9
+        assert all(a.get_text().strip().startswith("Answer:") for a in answers)
 
 
 class TestPercentageRounding:
